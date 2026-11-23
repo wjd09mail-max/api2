@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -52,6 +53,7 @@ public class MainActivity extends Activity {
                 if (request.isForMainFrame()) handler.postDelayed(MainActivity.this::loadApp, 1000);
             }
         });
+        web.setWebChromeClient(new WebChromeClient());   // JS 확인창(confirm/alert) 표시 허용
         web.loadDataWithBaseURL(null, LOADING, "text/html", "utf-8", null);
 
         if (Build.VERSION.SDK_INT >= 33
