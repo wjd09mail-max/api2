@@ -24,10 +24,11 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "2.2.1";
+    public static final String VERSION = "3.0.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
+    public final Trader trader;
     public final Kakao.Notifier notifier;
     public final String token;          // 내장 웹서버 접근 토큰 (다른 앱의 접근 차단)
     private final String page;
@@ -39,6 +40,8 @@ public final class AppCore {
         this.notifier = notifier;
         this.kakao = new Kakao(cfg, notifier);
         this.engine = new Engine(cfg, kakao, new File(configFile.getAbsoluteFile().getParentFile(), "watch.json"));
+        this.trader = new Trader(cfg, kakao, engine, new File(configFile.getAbsoluteFile().getParentFile(), "trade.json"));
+        engine.setTrader(trader);
         this.page = pageHtml;
         byte[] b = new byte[18];
         new SecureRandom().nextBytes(b);
@@ -319,7 +322,7 @@ public final class AppCore {
                 for (int i = 0; i < Store.SLOT_COUNT; i++) {
                     Map<String, Object> s = i < slots.size() ? Json.obj(slots.get(i)) : new LinkedHashMap<String, Object>();
                     clean.add(Json.map("enabled", Json.b(s.get("enabled")), "seq", Json.s(s.get("seq")).trim(),
-                            "name", Json.s(s.get("name")).trim()));
+                            "name", Json.s(s.get("name")).trim(), "buy", Json.b(s.get("buy"))));
                 }
                 synchronized (cfg.lock) {
                     cfg.data.put("slots", clean);
@@ -328,6 +331,46 @@ public final class AppCore {
                 Object[] r = engine.applySlots();
                 return new Object[]{true, "조건식 저장됨. " + r[1]};
             }
+            case "/api/trade/settings": {
+                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell"};
+                String[] bools = {"enabled", "real_ok", "bot_only"};
+                String[] times = {"buy_start", "buy_end", "close_time"};
+                synchronized (cfg.lock) {
+                    Map<String, Object> tr = cfg.sec("trade");
+                    for (String k : nums) {
+                        if (!b.containsKey(k)) continue;
+                        double v = Json.d(Json.s(b.get(k)).replace(",", ""), -1);
+                        if (v < 0) return new Object[]{false, "'" + k + "' 값이 올바르지 않습니다"};
+                        tr.put(k, v);
+                    }
+                    for (String k : bools) if (b.containsKey(k)) tr.put(k, Json.b(b.get(k)));
+                    for (String k : times) {
+                        if (!b.containsKey(k)) continue;
+                        String v = Json.s(b.get(k)).trim();
+                        if (!v.isEmpty() && !v.matches("([01][0-9]|2[0-3]):[0-5][0-9]")) return new Object[]{false, "시각은 09:05 형식으로 입력하세요"};
+                        tr.put(k, v);
+                    }
+                    if (b.containsKey("order_type")) tr.put("order_type", "limit".equals(Json.s(b.get("order_type"))) ? "limit" : "market");
+                    cfg.save();
+                }
+                trader.reload();
+                boolean on = cfg.bool("trade", "enabled");
+                if (b.containsKey("enabled") && b.size() == 1) {
+                    Store.Logx.add("자동매매 " + (on ? "켜짐" : "꺼짐"));
+                    kakao.push(on ? "🟢 자동매매 켜짐 " + (cfg.bool("kiwoom", "mock") ? "(모의투자)" : "(실전)") : "⚪ 자동매매 꺼짐");
+                    return new Object[]{true, "자동매매 " + (on ? "ON" : "OFF")};
+                }
+                return new Object[]{true, "매매 설정 저장됨"};
+            }
+            case "/api/trade/sell":
+                return trader.sell(Engine.cleanCode(b.get("code")), "수동 매도", true);
+            case "/api/trade/sellall":
+                return trader.sellAll("수동 전체 매도", true);
+            case "/api/trade/resume":
+                return trader.resume();
+            case "/api/trade/refresh":
+                trader.refreshNow();
+                return new Object[]{true, "잔고 새로고침 요청"};
             case "/api/search":
                 return engine.searchOnce(Json.s(b.get("seq")));
             case "/api/watch/remove":
@@ -474,6 +517,8 @@ public final class AppCore {
         }
         s.put("version", VERSION);
         s.put("alerts", cfg.copy("alerts"));
+        s.put("trade", trader.snapshot());
+        s.put("trade_cfg", cfg.copy("trade"));
         s.put("stock_alerts", cfg.copy("stock_alerts"));
         s.put("index_alerts", cfg.copy("index_alerts"));
         s.put("logs", Logx.lines(150));

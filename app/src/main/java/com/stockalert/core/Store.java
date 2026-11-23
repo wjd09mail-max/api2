@@ -33,7 +33,7 @@ public final class Store {
         List<Object> slots = Json.arr(data.get("slots"));
         List<Object> fixed = new ArrayList<>();
         for (int i = 0; i < SLOT_COUNT; i++) {
-            fixed.add(i < slots.size() ? slots.get(i) : Json.map("enabled", false, "seq", "", "name", ""));
+            fixed.add(i < slots.size() ? slots.get(i) : Json.map("enabled", false, "seq", "", "name", "", "buy", false));
         }
         data.put("slots", fixed);
         save();
@@ -61,6 +61,12 @@ public final class Store {
                 "index_alerts", Json.map(
                         "001", Json.map("enabled", true, "step", 1.0, "surge_pct", 0.5, "surge_min", 5.0, "price_up", 0.0, "price_dn", 0.0),
                         "101", Json.map("enabled", true, "step", 1.0, "surge_pct", 0.7, "surge_min", 5.0, "price_up", 0.0, "price_dn", 0.0)),
+                // 자동매매 (기본 꺼짐, 실전 주문은 별도 허용 필요)
+                "trade", Json.map("enabled", false, "real_ok", false, "buy_amount", 500000.0, "order_type", "market",
+                        "take_profit", 3.0, "stop_loss", 2.0, "trail_pct", 0.0,
+                        "max_buys", 10.0, "max_positions", 5.0, "max_loss", 300000.0,
+                        "buy_start", "09:05", "buy_end", "15:00", "close_time", "15:15",
+                        "index_stop", 1.5, "index_sell", 3.0, "bot_only", true),
                 "ui", Json.map("port", 8080.0, "password", ""));
     }
 

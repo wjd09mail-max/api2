@@ -132,6 +132,7 @@ public final class Engine {
         String name;
         final LinkedHashMap<String, Src> groups = new LinkedHashMap<>();
         boolean manual = false;
+        boolean held = false;          // 자동매매 보유 종목 (목록에서 빠지지 않음)
         long enteredAt = 0;
         double entryPrice = 0, price = 0, rate = 0;
         boolean inited = false, tgtUpHit = false, tgtDnHit = false;
@@ -195,6 +196,28 @@ public final class Engine {
     private String lastAuthErr = "";
     private boolean loggedReal02 = false, loggedReal0J = false;
     private volatile boolean dirty = false;
+    private volatile Trader trader;
+
+    public void setTrader(Trader t) {
+        trader = t;
+    }
+
+    Rest rest() {
+        return rest;
+    }
+
+    /** 보유 종목을 실시간 시세 감시에 고정 */
+    public void watchHeld(String code, String name) {
+        synchronized (lock) {
+            Watch w = (Watch) ensure(code)[0];
+            if (w == null) return;
+            w.held = true;
+            if (name != null && !name.isEmpty() && !name.equals(code)) {
+                w.name = name;
+                names.put(code, name);
+            }
+        }
+    }
 
     // 캐시된 설정 (틱마다 설정 파일을 복사하지 않도록)
     private volatile Map<String, Object> gAlerts = new HashMap<>();
@@ -247,7 +270,7 @@ public final class Engine {
     }
 
     static String won(double p) {
-        return p >= 100 ? String.format(Locale.KOREA, "%,.0f", p) : String.format(Locale.KOREA, "%,.2f", p);
+        return Math.abs(p) >= 100 ? String.format(Locale.KOREA, "%,.0f", p) : String.format(Locale.KOREA, "%,.2f", p);
     }
 
     static String pct(double r) {
@@ -782,7 +805,7 @@ public final class Engine {
         if (watch.size() >= mx) {
             Watch oldest = null;
             for (Watch x : watch.values())
-                if (!x.anyActive() && !x.manual && (oldest == null || x.added < oldest.added)) oldest = x;
+                if (!x.anyActive() && !x.manual && !x.held && (oldest == null || x.added < oldest.added)) oldest = x;
             if (oldest == null) {
                 Logx.add("감시 종목 한도(" + mx + ") 초과 – " + code + " 제외", "warn");
                 return new Object[]{null, false};
@@ -867,7 +890,7 @@ public final class Engine {
             if (s != null) s.active = false;
             if (!Json.b(gAlerts.get("keep_after_exit"))) {
                 w.groups.remove(cond);
-                if (w.groups.isEmpty() && !w.manual) drop(code);
+                if (w.groups.isEmpty() && !w.manual && !w.held) drop(code);
             }
             dirty = true;
         }
@@ -891,7 +914,7 @@ public final class Engine {
             } else {
                 w.groups.remove(group);
             }
-            if (w.groups.isEmpty() && !w.manual) drop(code);
+            if (w.groups.isEmpty() && !w.manual && !w.held) drop(code);
             dirty = true;
         }
         if (group == null || group.isEmpty() || MANUAL.equals(group)) removeFromWatchlistCfg(code);
@@ -907,7 +930,7 @@ public final class Engine {
                 if (!hit) continue;
                 if (MANUAL.equals(group)) w.manual = false;
                 else w.groups.remove(group);
-                if (w.groups.isEmpty() && !w.manual) drop(w.code);
+                if (w.groups.isEmpty() && !w.manual && !w.held) drop(w.code);
                 n++;
             }
             dirty = true;
@@ -948,7 +971,7 @@ public final class Engine {
             for (Watch w : new ArrayList<>(watch.values())) {
                 if (w.manual && !want.contains(w.code)) {
                     w.manual = false;
-                    if (w.groups.isEmpty()) drop(w.code);
+                    if (w.groups.isEmpty() && !w.held) drop(w.code);
                 }
             }
             for (String c : want) {
@@ -1018,6 +1041,8 @@ public final class Engine {
                     }
                 }
                 if (enterSrc != null && w != null) {
+                    Trader tr = trader;
+                    if (tr != null) tr.onSignal(code, enterSrc, w.price, w.name);
                     Map<String, Object> a = eff(code);
                     int hits = 0;
                     synchronized (lock) {
@@ -1097,6 +1122,8 @@ public final class Engine {
 
     private void onTick(String code, double p, double r) {
         if (p <= 0) return;
+        Trader tr = trader;
+        if (tr != null) tr.onTick(code, p);
         Map<String, Object> a = eff(code);
         boolean mute = Json.b(a.get("mute"));
         double cd = ad(gAlerts, "cooldown_min");
@@ -1164,6 +1191,8 @@ public final class Engine {
     }
 
     private void onIndex(String code, double p, double r) {
+        Trader tr = trader;
+        if (tr != null && p > 0) tr.onIndex(code, r);
         List<String> out = new ArrayList<>();
         synchronized (lock) {
             Ix ix = indices.get(code);
@@ -1351,6 +1380,8 @@ public final class Engine {
             String s = "감시 " + watch.size() + "종목 · 조건 " + active.size() + "개" + (sm > 0 ? "(" + sm + "분)" : "(실시간)");
             if (k != null && k.price > 0) s += " · 코스피 " + pct(k.rate);
             if (q != null && q.price > 0) s += " · 코스닥 " + pct(q.rate);
+            Trader tr = trader;
+            if (tr != null) s += tr.shortStatus();
             return s;
         }
     }
