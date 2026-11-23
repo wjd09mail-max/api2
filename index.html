@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>조건검색 알림</title>
+<style>
+:root{--bg:#0e131d;--card:#161d2b;--line:#253049;--tx:#e6ebf5;--mu:#8592ad;--ac:#4f8cff;--up:#ff5a5f;--dn:#3d8bff;--ok:#28c76f;--warn:#ffb020}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;padding-bottom:76px}
+header{position:sticky;top:0;z-index:5;background:#0e131dee;backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 14px}
+.top{display:flex;align-items:center;gap:10px}.dot{width:10px;height:10px;border-radius:50%;background:#555;flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.err{background:var(--up)}
+#status{font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+main{padding:12px;max-width:900px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 8px;color:#c9d3e6;display:flex;align-items:center;gap:6px}h2 .sp{flex:1}
+.mu{color:var(--mu);font-size:13px}
+button{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+button.sec{background:#26324b}button.red{background:#c9474b}button.sm{padding:6px 10px;font-size:13px;border-radius:8px}
+button.ic{background:#1f2940;padding:6px 9px;font-size:15px;border-radius:8px}
+input,select,textarea{width:100%;background:#0d1320;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:15px}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--ac);flex:none}
+label{display:block;font-size:13px;color:var(--mu);margin:8px 0 4px}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row>.nf{flex:none}
+.slot{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.slot:last-child{border:0}
+.slot .n{width:18px;color:var(--mu);font-weight:700;text-align:center;flex:none}.slot select,.slot input[type=text]{flex:1;min-width:0}
+.badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:20px;background:#26324b;color:#b9c6e0;margin:1px 3px 1px 0;white-space:nowrap;font-weight:600}
+.badge.live{background:#173d2a;color:#5be39a}.badge.hit{background:#3a2330;color:#ff8fa3}.badge.off{background:#3a3220;color:#ffc35a}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.st{padding:10px 0;border-top:1px solid #1d263a}.st:first-of-type{border-top:0}
+.st .l1{display:flex;align-items:baseline;gap:6px;cursor:pointer;flex-wrap:wrap;row-gap:2px}.st .nm,.st .cd{white-space:nowrap}.link{text-decoration:underline;text-decoration-color:#4f8cff88;text-underline-offset:3px}.st .nm{font-weight:700;font-size:15.5px}.st .cd{color:var(--mu);font-size:12px}
+.st .px{margin-left:auto;text-align:right;font-weight:700;white-space:nowrap}.st .px small{font-weight:600;margin-left:6px}
+.st .l2{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12.5px;color:var(--mu)}.st .l2 .bt{margin-left:auto;display:flex;gap:5px}
+.ix{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1d263a}.ix:first-of-type{border-top:0}
+.ix .nm{font-weight:700;width:56px}.ix .v{flex:1;font-weight:700}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.tg{opacity:.35}.tg.on{opacity:1;background:#2c3d1c}
+.sw2{display:flex;align-items:center;gap:10px}.sw2 .big{font-size:17px;font-weight:800;flex:1}
+.onbtn{min-width:92px}.onbtn.off{background:#3a4258}.onbtn.on{background:#1f9d55}
+.warnbox{background:#3a2a12;color:#ffc35a;border-radius:10px;padding:8px 10px;font-size:13px;margin-top:8px}
+.stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13.5px;color:var(--mu)}.stats b{color:var(--tx)}
+.od{padding:8px 0;border-top:1px solid #1d263a;font-size:13.5px}.od:first-child{border-top:0}.od .s{font-weight:800;margin-right:4px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.log{font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.log .error{color:#ff8a8d}.log .warn{color:var(--warn)}.log .debug{color:#6f7c96}
+.alert{padding:9px 0;border-bottom:1px solid var(--line);white-space:pre-wrap;font-size:14px}.alert .t{color:var(--mu);font-size:12px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#121a28;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav a{flex:1;text-align:center;padding:9px 0 11px;color:var(--mu);text-decoration:none;font-size:12px}nav a.on{color:var(--ac);font-weight:700}
+nav a i{display:block;font-style:normal;font-size:19px}
+.tab{display:none}.tab.on{display:block}
+#toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:#273452;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;display:none;max-width:90%;z-index:20}
+.empty{color:var(--mu);text-align:center;padding:18px 0;font-size:14px}
+.help{background:#111a2a;border-radius:10px;padding:10px 12px;font-size:13px;color:#a9b5cc;margin-top:8px;line-height:1.55}
+code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-break:break-all}
+#mask{position:fixed;inset:0;background:#0008;z-index:10;display:none}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:#151c2a;border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:86vh;overflow:auto;display:none;max-width:700px;margin:0 auto}
+#sheet h3{margin:0 0 4px;font-size:17px}.sw{display:flex;align-items:center;gap:10px;padding:10px 0;font-weight:600}
+
+/* ───── 폴드 전면(커버) 화면: 폭 ~344px ───── */
+@media (max-width:380px){
+ body{font-size:14px}
+ header{padding:8px 10px}.top{gap:6px}#status{font-size:13.5px}
+ header button{padding:8px 11px;font-size:15px}
+ header .lb{display:none}
+ main{padding:8px}
+ .card{padding:10px 11px;border-radius:12px;margin-bottom:9px}
+ h2{font-size:14px}
+ .st{padding:8px 0}.st .l1{flex-wrap:wrap;row-gap:2px}.st .nm{font-size:14.5px}.st .cd{font-size:11px}
+ .st .px{font-size:14px}.st .px small{margin-left:4px}
+ .st .l2{font-size:11.5px;flex-wrap:wrap}.st .l2 .bt{gap:4px}
+ button.ic{padding:5px 7px;font-size:14px}
+ .badge{font-size:10.5px;padding:1px 6px}
+ .ix .nm{width:46px}.ix .v{font-size:14px}
+ .slot{gap:6px}.slot .n{width:12px;font-size:12px}
+ input,select,textarea{padding:9px;font-size:14px}
+ .grid2{grid-template-columns:1fr;gap:0}
+ .grid3{gap:6px}.grid3 button{padding:10px 6px}
+ nav a{font-size:10.5px;padding:7px 0 9px}nav a i{font-size:17px}
+ body{padding-bottom:64px}
+ #toast{top:58px;font-size:13px}
+ #sheet{padding:14px 12px calc(14px + env(safe-area-inset-bottom))}
+}
+/* ───── 폴드 펼친 화면(메인): 폭 600px 이상 ───── */
+@media (min-width:600px){
+ body{font-size:15.5px}
+ .hw{max-width:1200px;margin:0 auto}
+ main{max-width:1200px;padding:14px 18px}
+ #groups{columns:2;column-gap:14px}
+ #groups .card{break-inside:avoid;display:block}
+ #t-trade.on,#t-cond.on,#t-alert.on,#t-set.on{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+ #t-trade .card,#t-cond .card,#t-alert .card,#t-set .card{margin-bottom:0}#trStatus{grid-column:1 / -1}
+ #t-alert .card{grid-column:1 / -1}
+ #t-alert .grid2{grid-template-columns:1fr 1fr 1fr}
+ #t-log .log{max-height:72vh}
+ nav{max-width:1200px;margin:0 auto;border-radius:16px 16px 0 0}
+ #sheet{left:50%;right:auto;top:50%;bottom:auto;transform:translate(-50%,-50%);width:min(560px,92vw);border-radius:18px;border:1px solid var(--line);max-height:88vh}
+ #toast{top:76px}
+}
+/* 펼친 화면 가로 방향 등 아주 넓을 때 */
+@media (min-width:900px){
+ #groups{columns:3}
+ #ixs{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+ #ixs .ix:nth-child(2){border-top:0}
+}
+</style></head><body>
+<header><div class="top hw"><span id="dot" class="dot"></span><span id="status">불러오는 중…</span>
+<button id="btnStart" data-act="startAsk">▶<span class="lb"> 시작</span></button><button id="btnStop" class="red" style="display:none" data-act="stop">■<span class="lb"> 중지</span></button><button class="sec" data-act="exit" title="앱 완전 종료">✖<span class="lb"> 종료</span></button></div></header>
+<main>
+<section class="tab on" id="t-watch">
+  <div class="card"><h2>🏛 지수 <span class="sp"></span><span class="mu">기본 감시 · 🔔로 설정</span></h2><div id="ixs"></div></div>
+  <div id="groups"></div>
+  <div class="card"><h2>최근 알림</h2><div id="alerts"></div></div>
+</section>
+<section class="tab" id="t-trade">
+  <div class="card" id="trStatus"></div>
+  <div class="card"><h2>💼 보유 종목 <span class="sp"></span><button class="sec sm" data-act="trRefresh">↻ 잔고</button><button class="red sm" data-act="trSellAll">전체 매도</button></h2><div id="trPos"></div></div>
+  <div class="card"><h2>⚙️ 자동매매 설정</h2>
+   <div class="grid2">
+    <div><label>종목당 매수 금액(원)</label><input id="tr_buy_amount" inputmode="numeric"></div>
+    <div><label>주문 방식</label><select id="tr_order_type"><option value="market">시장가</option><option value="limit">현재가 지정가</option></select></div>
+    <div><label>익절 (+%)</label><input id="tr_take_profit" inputmode="decimal"></div>
+    <div><label>손절 (−%)</label><input id="tr_stop_loss" inputmode="decimal"></div>
+    <div><label>트레일링: 고점 대비 하락(%) · 0=끔</label><input id="tr_trail_pct" inputmode="decimal"></div>
+    <div><label>하루 최대 매수 횟수</label><input id="tr_max_buys" inputmode="numeric"></div>
+    <div><label>최대 동시 보유 종목</label><input id="tr_max_positions" inputmode="numeric"></div>
+    <div><label>일일 손실 한도(원) → 매수 정지</label><input id="tr_max_loss" inputmode="numeric"></div>
+    <div><label>매수 시작 시각</label><input id="tr_buy_start" placeholder="09:05"></div>
+    <div><label>매수 마감 시각</label><input id="tr_buy_end" placeholder="15:00"></div>
+    <div><label>장마감 일괄 매도 시각 · 비우면 끔</label><input id="tr_close_time" placeholder="15:15"></div>
+    <div><label>지수 −N% 이하면 신규 매수 중단</label><input id="tr_index_stop" inputmode="decimal"></div>
+    <div><label>지수 −N% 이하면 전량 매도 · 0=끔</label><input id="tr_index_sell" inputmode="decimal"></div>
+   </div>
+   <div class="row" style="margin-top:10px"><input type="checkbox" id="tr_bot_only" class="nf"><span>직접 산 종목은 기본으로 자동매도 OFF (종목별 ⚙에서 켤 수 있음)</span></div>
+   <div class="row" style="margin-top:8px"><input type="checkbox" id="tr_real_ok" class="nf"><span style="color:#ff8a8d"><b>실전 주문 허용</b> – 끄면 모의투자 서버에서만 주문</span></div>
+   <div class="help">아래 값은 <b>기본값</b>입니다. 보유 종목별로 ⚙ 설정에서 따로 바꿀 수 있습니다.<br>자동매수 대상: 🔎조건식 탭에서 <b>💰</b>를 켠 조건식에 종목이 <b>편입</b>될 때.<br>같은 종목은 하루 1회만 매수 · 매도는 시장가 · 주문 결과는 폰 알림/카톡으로 옵니다.<br>⚠ 폰이 꺼지거나 IP가 바뀌면 손절 주문이 못 나갈 수 있습니다. 반드시 모의투자로 충분히 시험한 뒤 사용하세요.</div>
+   <div class="row" style="margin-top:10px"><button data-act="trSave">저장</button></div></div>
+  <div class="card"><h2>🧾 오늘 주문 내역</h2><div id="trOrders"></div></div>
+</section>
+<section class="tab" id="t-cond">
+  <div class="card"><h2>조건검색식 슬롯</h2>
+  <div class="mu">영웅문4 [0150]에서 저장한 조건식을 고르세요. <b>체크 + 적용</b> = 감시(편입 시 알림), <b>💰</b> = 편입 시 자동매수(매매 탭에서 ON 필요), <b>🔍</b> = 지금 바로 1회 검색.</div>
+  <div id="slots" style="margin-top:6px"></div>
+  <label>검색 방식</label><select id="scanSel"><option value="0">⚡ 실시간 (편입 즉시)</option><option value="1">1분마다 재검색</option><option value="3">3분마다 재검색</option><option value="5">5분마다 재검색</option><option value="10">10분마다 재검색</option><option value="30">30분마다 재검색</option></select>
+  <div class="row" style="margin-top:10px"><button class="sec" data-act="conds">↻ 목록 불러오기</button><button data-act="saveSlots">적용</button></div>
+  <div class="help" id="condhelp"></div></div>
+  <div class="card"><h2>⭐ 관심종목 (직접 감시)</h2><label>종목코드 (쉼표로 구분)</label><textarea id="wl" rows="2" placeholder="005930, 000660"></textarea>
+  <div class="row" style="margin-top:8px"><button data-act="saveWL">저장</button></div></div>
+</section>
+<section class="tab" id="t-alert">
+  <div class="card"><h2>기본 알림 조건 (모든 종목)</h2>
+  <div class="mu">종목마다 다르게 하려면 감시 탭에서 종목의 🔔를 누르세요. 지수는 감시 탭 지수 카드의 🔔.</div>
+  <div class="row" style="margin-top:10px"><input type="checkbox" id="a_on_enter" class="nf"><span>조건식 <b>편입</b> 시 알림</span></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_on_exit" class="nf"><span>조건식 <b>이탈</b> 시 알림</span></div>
+  <div class="grid2">
+   <div><label>전일대비 등락률 단계(%)</label><input id="a_day_step" type="number" step="0.5" inputmode="decimal"></div>
+   <div><label>편입가 대비 변동 단계(%)</label><input id="a_entry_step" type="number" step="0.5" inputmode="decimal"></div>
+   <div><label>급등락 기준(%)</label><input id="a_surge_pct" type="number" step="0.5" inputmode="decimal"></div>
+   <div><label>급등락 시간창(분)</label><input id="a_surge_min" type="number" step="1" inputmode="decimal"></div>
+   <div><label>같은 알림 재발송 간격(분)</label><input id="a_cooldown_min" type="number" step="1" inputmode="decimal"></div>
+   <div><label>최대 감시 종목 수</label><input id="a_max_watch" type="number" step="10" inputmode="numeric"></div>
+  </div>
+  <div class="row" style="margin-top:10px"><input type="checkbox" id="a_keep_after_exit" class="nf"><span>이탈 후에도 목록에 남겨 계속 감시</span></div>
+  <h2 style="margin-top:16px">알림 받을 곳</h2>
+  <div class="row"><input type="checkbox" id="a_phone_notify" class="nf"><span>📱 폰 알림</span><button class="sec sm nf" data-act="phoneTest">테스트</button></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_kakao_notify" class="nf"><span>💬 카카오톡 알림</span></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_quiet" class="nf"><span>모든 알림 일시중지 (화면에만 기록)</span></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_autostart" class="nf"><span>앱 실행 시 자동으로 감시 시작</span></div>
+  <div class="help">단계 3% → +3%, +6%, +9%… 또는 −3%, −6%… 를 처음 넘을 때 1회 알림. 0 = 끔.<br>급등락: 시간창 안에서 저점 대비 상승 / 고점 대비 하락이 기준 이상이면 알림.</div>
+  <div class="row" style="margin-top:10px"><button data-act="saveAlerts">저장</button></div></div>
+</section>
+<section class="tab" id="t-set">
+  <div class="card"><h2>카카오톡 알림 받을 사람</h2><div id="recips"></div>
+  <label>받는 사람 이름 (구분용)</label><div class="row"><input id="rname" placeholder="예: 나, 아내"><button class="nf" data-act="kakaoLogin">카카오 연결</button></div>
+  <div class="help">‘카카오 연결’을 누르면 휴대폰 브라우저가 열립니다. 동의를 마치면 이 앱으로 돌아오세요.<br>카카오 개발자 Redirect URI: <code id="ruri"></code></div>
+  <div class="row" style="margin-top:10px"><button class="sec" data-act="kakaoTest">테스트 메시지 보내기</button></div></div>
+  <div class="card"><h2>키움 REST API</h2>
+  <label>App Key</label><input id="s_appkey" autocomplete="off"><label>Secret Key</label><input id="s_secretkey" type="password" autocomplete="off">
+  <div class="row" style="margin-top:10px"><input type="checkbox" id="s_mock" class="nf"><span>모의투자 서버 사용</span></div>
+  <div class="row" style="margin-top:10px"><span class="mu" id="myip">현재 공인 IP: -</span><button class="sec sm nf" data-act="myip">내 IP 확인</button></div>
+  <h2 style="margin-top:16px">카카오 개발자 앱</h2>
+  <label>REST API 키</label><input id="s_krest" autocomplete="off"><label>Client Secret (사용 설정한 경우만)</label><input id="s_ksecret" type="password" autocomplete="off">
+  <div class="row" style="margin-top:12px"><button data-act="saveSettings">저장</button></div>
+  <div class="help">키는 이 휴대폰 앱 안에만 저장됩니다. ‘abcd••••’로 보이면 이미 저장된 상태이며 비워두면 유지됩니다.<br>이 앱은 알림 전용이라 주문 기능이 없습니다. 모의투자 서버에서 조건검색이 안 되면 실전 서버(체크 해제) + 실전 App Key 로 바꿔 보세요.</div></div>
+  <div class="card"><h2>백그라운드 실행</h2>
+  <div class="mu">앱 화면을 닫아도 상단 알림창에 <b>📡 조건검색 알림</b>이 떠 있는 동안 계속 감시합니다.</div>
+  <div class="row" style="margin-top:10px"><button class="sec" onclick="location.href='app://battery'">🔋 절전 제외 허용</button><button class="red" data-act="exit">✖ 앱 완전 종료</button></div>
+  <div class="mu" style="margin-top:8px" id="ver"></div></div>
+</section>
+<section class="tab" id="t-log"><div class="card"><h2>로그 <span class="sp"></span><label class="nf" style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showDebug" checked>원본 응답</label></h2><div class="log" id="log"></div></div></section>
+</main>
+<nav><a href="#" data-t="watch" class="on"><i>📊</i>감시</a><a href="#" data-t="trade"><i>💰</i>매매</a><a href="#" data-t="cond"><i>🔎</i>조건식</a><a href="#" data-t="alert"><i>🔔</i>알림</a><a href="#" data-t="set"><i>⚙️</i>설정</a><a href="#" data-t="log"><i>📜</i>로그</a></nav>
+<div id="mask"></div><div id="sheet"></div>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);let S=null,formsFilled=false,condSig='';
+let PIN=new URLSearchParams(location.search).get('t')||'';
+const MANUAL='__manual__';
+document.querySelectorAll('nav a').forEach(a=>a.onclick=e=>{e.preventDefault();document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',x===a));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id==='t-'+a.dataset.t));window.scrollTo(0,0);});
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3500);}
+async function api(path,body){const o={method:body===undefined?'GET':'POST',headers:{'X-PIN':PIN,'Content-Type':'application/json'}};if(body!==undefined)o.body=JSON.stringify(body);
+ const r=await fetch(path,o);if(r.status===401){$('#status').textContent='앱을 다시 열어 주세요';throw new Error('PIN');}return r.json();}
+async function act(path,body){try{const r=await api(path,body||{});toast((r.ok?'✅ ':'⚠️ ')+r.msg);refresh();return r;}catch(e){}}
+const f=(n,d=0)=>n==null?'-':Number(n).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d});
+const cls=r=>r>0?'up':r<0?'dn':'';const sg=r=>r==null?'-':(r>0?'+':'')+Number(r).toFixed(2)+'%';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const enc=s=>encodeURIComponent(s);const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');const dec=s=>decodeURIComponent(s);
+
+const held=c=>S&&S.trade?S.trade.positions.find(p=>p.code===c):null;
+function stockRow(r,g){
+ const gi=g===MANUAL?null:r.groups.find(x=>x.name===g);
+ const b=[];if(gi&&gi.hits>0)b.push(`<span class="badge hit">${gi.hits}회</span>`);if(gi&&!gi.active)b.push('<span class="badge">이탈</span>');
+ if(r.mute)b.push('<span class="badge off">🔕</span>');const hp=held(r.code);if(hp)b.push(`<span class="badge live">보유 ${f(hp.qty)}주 <span class="${cls(hp.pnl)}">${sg(hp.pnl)}</span></span>`);if(r.custom)b.push('<span class="badge">⚙개별</span>');
+ const info=[];if(gi&&gi.first)info.push('최초 '+gi.first);if(gi&&gi.last&&gi.last!==gi.first)info.push('최근 '+gi.last);
+ if(r.entry_rate!=null)info.push(`편입후 <b class="${cls(r.entry_rate)}">${sg(r.entry_rate)}</b>`);
+ return `<div class="st"><div class="l1" data-act="chart" data-code="${r.code}"><span class="nm link">${esc(r.name)}</span><span class="cd">${r.code} 📈</span>${b.join('')}<span class="px">${r.price?f(r.price):'-'}<small class="${cls(r.rate)}">${r.price?sg(r.rate):''}</small></span></div>
+ <div class="l2"><span>${info.join(' · ')}</span><span class="bt"><button class="ic" data-act="stockSheet" data-code="${r.code}">🔔</button><button class="ic tg ${held(r.code)?'on':''}" data-act="tradeSheet" data-code="${r.code}" title="매수/매도">💰</button>${g!==MANUAL&&!r.manual?`<button class="ic" data-act="addWL" data-code="${r.code}">⭐</button>`:''}<button class="ic" data-act="del" data-code="${r.code}" data-g="${enc(g)}">🗑</button></span></div></div>`;}
+
+function renderWatch(){
+ $('#ixs').innerHTML=S.indices.map(i=>`<div class="ix"><span class="nm link" data-act="chart" data-ix="${i.code}">${i.name}</span><span class="v">${i.price?f(i.price,2):'-'} <span class="${cls(i.rate)}">${i.price?sg(i.rate):''}</span></span>${i.enabled?'<span class="badge live">알림 ON</span>':'<span class="badge off">알림 OFF</span>'}<button class="ic" data-act="ixSheet" data-code="${i.code}">🔔</button></div>`).join('');
+ const actv=Object.values(S.active);let html='';
+ for(const g of S.groups){const rows=S.watch.filter(r=>r.groups.some(x=>x.name===g));
+  rows.sort((a,b)=>{const A=a.groups.find(x=>x.name===g),B=b.groups.find(x=>x.name===g);return (B.last||'').localeCompare(A.last||'');});
+  html+=`<div class="card"><h2>🔎 ${esc(g)} <span class="mu">${rows.length}종목</span>${actv.includes(g)?`<span class="badge live">${S.scan_min>0?S.scan_min+'분 주기'+(S.next_scan_sec>=0?' · '+mmss(S.next_scan_sec):''):'실시간'}</span>`:''}<span class="sp"></span>${rows.length?`<button class="sec sm" data-act="clear" data-g="${enc(g)}">비우기</button>`:''}</h2>${rows.length?rows.map(r=>stockRow(r,g)).join(''):'<div class="empty">아직 검색된 종목이 없습니다</div>'}</div>`;}
+ const man=S.watch.filter(r=>r.manual);
+ if(man.length)html+=`<div class="card"><h2>⭐ 관심종목 <span class="mu">${man.length}종목</span><span class="sp"></span></h2>${man.map(r=>stockRow(r,MANUAL)).join('')}</div>`;
+ if(!S.groups.length&&!man.length)html=`<div class="card"><div class="empty">감시 중인 종목이 없습니다.<br>▶시작 → 🔎조건식 탭에서 조건식을 <b>적용</b>하거나 <b>🔍</b>를 누르세요.</div></div>`;
+ $('#groups').innerHTML=html;}
+
+let trFilled=false;
+function renderTrade(){const T=S.trade,C=S.trade_cfg;const buySlots=(S.slots||[]).filter(x=>x.buy&&x.enabled).map(x=>x.name).filter(Boolean);
+ $('#trStatus').innerHTML=`<div class="sw2"><span class="big">🤖 조건식 자동매수 <span class="badge ${T.mock?'live':'off'}">${T.mock?'모의투자':'실전'}</span></span><button class="onbtn ${T.enabled?'on':'off'}" data-act="trToggle">${T.enabled?'ON':'OFF'}</button></div>
+ <div class="mu" style="margin-top:4px">ON: 💰 표시한 조건식에 편입되면 자동 매수 · 수동 매수는 📊감시 탭 종목의 💰 · 보유 종목 자동매도는 종목별 ⚙ 설정</div>
+ ${T.block&&(T.enabled||T.positions.length)?`<div class="warnbox">⚠ 주문 불가: ${esc(T.block)}</div>`:''}
+ ${T.halted?`<div class="warnbox">⛔ 자동매수 정지: ${esc(T.halt_reason)} <button class="sec sm" data-act="trResume" style="margin-left:6px">재개</button></div>`:''}
+ <div class="stats"><span>오늘 매수 <b>${T.buys_today}/${T.max_buys}</b>회</span><span>예상 실현손익 <b class="${cls(T.realized)}">${T.realized>=0?'+':''}${f(T.realized)}원</b></span><span>평가손익 <b class="${cls(T.eval_pl)}">${T.eval_pl>=0?'+':''}${f(T.eval_pl)}원</b></span></div>
+ <div class="mu" style="margin-top:6px">매수 조건식: ${buySlots.length?buySlots.map(n=>`<span class="badge live">${esc(n)}</span>`).join(''):'<b style="color:#ffc35a">없음 – 조건식 탭에서 💰를 켜세요</b>'} · 익절 +${C.take_profit}% · 손절 −${C.stop_loss}%${C.trail_pct>0?' · 트레일링 '+C.trail_pct+'%':''} · ${f(C.buy_amount)}원/종목</div>
+ ${T.balance_err?`<div class="mu" style="color:#ffb020;margin-top:4px">잔고 조회: ${esc(T.balance_err)}</div>`:''}`;
+ $('#trPos').innerHTML=T.positions.length?T.positions.map(p=>`<div class="st"><div class="l1" data-act="chart" data-code="${p.code}"><span class="nm link">${esc(p.name)}</span><span class="cd">${p.code}</span>${p.auto?'<span class="badge live">🤖자동매도</span>':'<span class="badge">자동매도 OFF</span>'}${p.custom?'<span class="badge">⚙개별</span>':''}${p.bot?'':'<span class="badge">직접보유</span>'}${p.pending?'<span class="badge off">매도중</span>':''}${p.wait?'<span class="badge">체결대기</span>':''}<span class="px">${f(p.last)}<small class="${cls(p.pnl)}">${sg(p.pnl)}</small></span></div>
+  <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
+ $('#trOrders').innerHTML=T.orders.length?T.orders.map(o=>`<div class="od"><span class="mu">${o.t}</span> <span class="s ${o.side==='매수'?'up':'dn'}">${o.side}</span><b>${esc(o.name||o.code)}</b> ${f(o.qty)}주 ${o.price?'@'+f(o.price):''} ${o.ok?'✅':'❌'}<div class="mu">${esc(o.reason)} · ${esc(o.msg)}</div></div>`).join(''):'<div class="empty">오늘 주문이 없습니다</div>';
+ if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}}}
+function render(){
+ $('#status').textContent=S.status+(S.error&&!S.connected?' · '+S.error:'');
+ $('#dot').className='dot '+(S.connected?'on':S.error?'err':'');
+ $('#btnStart').style.display=S.running?'none':'';$('#btnStop').style.display=S.running?'':'none';
+ renderWatch();renderTrade();
+ $('#alerts').innerHTML=S.alert_log.length?S.alert_log.slice(0,30).map(a=>`<div class="alert"><div class="t">${a.t}</div>${esc(a.msg)}</div>`).join(''):'<div class="empty">아직 알림이 없습니다</div>';
+ const dbg=$('#showDebug').checked;
+ $('#log').innerHTML=S.logs.slice().reverse().filter(l=>dbg||l.lv!=='debug').map(l=>`<div class="${l.lv}">[${l.t}] ${esc(l.msg)}</div>`).join('');
+ $('#recips').innerHTML=S.recipients.length?S.recipients.map(r=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>💬 <b>${esc(r.name)}</b> <span class="mu">(~${r.ok_until})</span>${r.scope_ok?'':' <span class="badge off">메시지 권한 없음</span>'}</span><button class="sec sm nf" data-act="delR" data-n="${enc(r.name)}">삭제</button></div>`).join(''):'<div class="mu">아직 연결된 사람이 없습니다.</div>';
+ $('#ruri').textContent=S.redirect_uri;$('#myip').textContent='현재 공인 IP: '+(S.public_ip||'-');$('#ver').textContent='버전 '+S.version;
+ const sig=JSON.stringify([S.conditions,S.active]);if(sig!==condSig||!formsFilled){condSig=sig;renderSlots(formsFilled?readSlots():S.slots);}
+ $('#condhelp').innerHTML=(S.conditions.length?`불러온 조건식 ${S.conditions.length}개 · 실시간 감시 중: ${Object.values(S.active).map(n=>`<span class="badge live">${esc(n)}</span>`).join('')||'없음'}`:'조건식 목록은 ▶시작(키움 연결) 후 자동으로 불러옵니다.')+'<br>결과가 안 나오면 📜로그 탭의 <b>수신 CNSRREQ</b> 줄을 캡처해 보내 주세요.';
+ if(!formsFilled){formsFilled=true;const a=S.alerts;for(const k in a){const el=$('#a_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!a[k];else el.value=a[k];}
+  $('#wl').value=S.watchlist;$('#scanSel').value=String(S.scan_min||0);const s=S.settings;$('#s_appkey').value=s.appkey;$('#s_secretkey').value=s.secretkey;$('#s_mock').checked=s.mock;$('#s_krest').value=s.kakao_rest_key;$('#s_ksecret').value=s.kakao_client_secret;}
+}
+function renderSlots(slots){const C=S.conditions;const live=Object.keys(S.active);
+ $('#slots').innerHTML=slots.map((s,i)=>{const on=live.includes(s.seq)||Object.values(S.active).includes(s.name);
+  const inp=C.length?`<select data-i="${i}" class="sel"><option value="">— 조건식 선택 —</option>${C.map(([q,n])=>`<option value="${esc(q)}" ${(q===s.seq||n===s.name)?'selected':''}>${esc(n)}</option>`).join('')}${(s.name&&!C.some(([q,n])=>n===s.name))?`<option value="" selected>(없음) ${esc(s.name)}</option>`:''}</select>`
+  :`<input type="text" data-i="${i}" class="txt" placeholder="조건식 이름" value="${esc(s.name)}">`;
+  return `<div class="slot"><span class="n">${i+1}</span><input type="checkbox" class="en" ${s.enabled?'checked':''}>${inp}${on?'<span class="badge live nf">감시중</span>':''}<button class="ic nf tg ${s.buy?'on':''}" data-act="buyTg" title="편입 시 자동매수">💰</button><button class="ic nf" data-act="search" data-i="${i}">🔍</button></div>`;}).join('');}
+function readSlots(){const C=S.conditions;return [...document.querySelectorAll('.slot')].map((d,i)=>{const en=d.querySelector('.en').checked;const buy=d.querySelector('.tg').classList.contains('on');const sel=d.querySelector('.sel'),txt=d.querySelector('.txt');
+ if(sel){const q=sel.value;const c=C.find(x=>x[0]===q);if(c)return{enabled:en,seq:c[0],name:c[1],buy};const old=S.slots[i]||{};return{enabled:en,seq:'',name:sel.selectedOptions[0]&&sel.selectedOptions[0].text.startsWith('(없음)')?old.name:'',buy};}
+ return{enabled:en,seq:'',name:txt.value.trim(),buy};});}
+
+// ── 알림 설정 시트 ──
+function openSheet(html){$('#sheet').innerHTML=html;$('#sheet').style.display='block';$('#mask').style.display='block';}
+function closeSheet(){$('#sheet').style.display='none';$('#mask').style.display='none';}
+$('#mask').onclick=()=>{if(_askRes)answer(false);else closeSheet();};
+const v=x=>(x==null||x===0||x==='')?'':x;
+function startSheet(){const cur=S.scan_min||0;const opts=[[0,'⚡ 실시간'],[1,'1분'],[3,'3분'],[5,'5분'],[10,'10분'],[30,'30분']];
+ openSheet(`<h3>조건검색 방식 선택</h3><div class="mu" style="margin-bottom:12px">⚡실시간: 키움이 편입 신호를 보내는 즉시 알림<br>N분: N분마다 조건식을 다시 검색해서 새로 잡힌 종목 알림 (실시간 신호가 안 올 때 사용)</div>
+ <div class="grid3">${opts.map(([m,l])=>`<button class="${m===cur?'':'sec'}" data-act="mode" data-m="${m}">${l}${m===cur?' ✓':''}</button>`).join('')}</div>
+ <div class="row" style="margin-top:12px"><button class="sec" data-act="close">취소</button></div>`);}
+function tradeSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:code,price:0,rate:0};const p=held(code);const C=S.trade_cfg;
+ openSheet(`<h3>💰 ${esc(r.name)} <span class="mu">${code}</span> <span class="badge ${S.trade.mock?'live':'off'}">${S.trade.mock?'모의':'실전'}</span></h3>
+ <div class="mu">현재가 <b style="color:var(--tx)">${r.price?f(r.price)+'원':'-'}</b> <span class="${cls(r.rate)}">${r.price?sg(r.rate):''}</span> · <a href="#" data-act="chart" data-code="${code}" style="color:#6ea8ff">📈 차트</a></div>
+ ${p?`<div class="warnbox" style="background:#16301f;color:#7fe0a5">보유 ${f(p.qty)}주 · 평단 ${f(p.avg)} · <b>${sg(p.pnl)}</b> (${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원)</div>`:''}
+ ${S.trade.block?`<div class="warnbox">⚠ ${esc(S.trade.block)}</div>`:''}
+ <h2 style="margin-top:12px">매수</h2>
+ <div class="grid2"><div><label>금액(원)</label><input id="b_amount" inputmode="numeric" value="${C.buy_amount}"></div><div><label>또는 수량(주) · 우선</label><input id="b_qty" inputmode="numeric" placeholder="비우면 금액 기준"></div>
+ <div><label>주문 방식</label><select id="b_type"><option value="market">시장가</option><option value="limit">지정가</option></select></div><div><label>지정가 가격(원)</label><input id="b_price" inputmode="numeric" value="${r.price?Math.round(r.price):''}"></div></div>
+ <div class="row" style="margin-top:8px"><input type="checkbox" id="b_manage" class="nf" checked><span>매수 후 자동매도 관리 (익절 +${C.take_profit}% / 손절 −${C.stop_loss}%, 보유 후 ⚙에서 변경)</span></div>
+ <div class="row" style="margin-top:10px"><button class="red" data-act="doBuy" data-code="${code}">매수 주문</button></div>
+ ${p?`<h2 style="margin-top:14px">매도</h2><div class="grid2"><div><label>수량(주) · 비우면 전량</label><input id="s_qty" inputmode="numeric" placeholder="${f(p.avail||p.qty)}주 전량"></div><div style="display:flex;align-items:flex-end"><button class="" style="width:100%;background:#2d6cdf" data-act="doSell" data-code="${code}">시장가 매도</button></div></div>
+ <div class="row" style="margin-top:8px"><button class="sec" data-act="posSheet" data-code="${code}">⚙ 이 종목 자동매도 설정</button></div>`:''}
+ <div class="row" style="margin-top:10px"><button class="sec" data-act="close">닫기</button></div>`);}
+function posSheet(code){const p=held(code);if(!p){toast('보유 종목이 아닙니다');return;}const c=p.cfg||{},C=S.trade_cfg;
+ openSheet(`<h3>⚙ ${esc(p.name)} <span class="mu">${code}</span> 매도 설정</h3>
+ <div class="mu">${f(p.qty)}주 · 평단 ${f(p.avg)} · 현재 ${f(p.last)} · <b class="${cls(p.pnl)}">${sg(p.pnl)}</b> · 고점 ${f(p.high)}</div>
+ <div class="sw"><input type="checkbox" id="p_auto" ${p.auto?'checked':''}><span>🤖 자동매도 사용</span></div>
+ <div class="mu">비워 두면 매매 탭 기본값을 따릅니다. 익절가/손절가(원)를 넣으면 % 보다 먼저 적용됩니다.</div>
+ <div class="grid2">
+ <div><label>익절 (+%)</label><input id="p_take_profit" inputmode="decimal" placeholder="기본 ${C.take_profit}" value="${v(c.take_profit)}"></div>
+ <div><label>손절 (−%)</label><input id="p_stop_loss" inputmode="decimal" placeholder="기본 ${C.stop_loss}" value="${v(c.stop_loss)}"></div>
+ <div><label>트레일링 (고점 대비 −%)</label><input id="p_trail_pct" inputmode="decimal" placeholder="기본 ${C.trail_pct||'끔'}" value="${v(c.trail_pct)}"></div><div></div>
+ <div><label>🎯 익절가(원) 이상</label><input id="p_tp_price" inputmode="numeric" placeholder="없음" value="${v(c.tp_price)}"></div>
+ <div><label>⛔ 손절가(원) 이하</label><input id="p_sl_price" inputmode="numeric" placeholder="없음" value="${v(c.sl_price)}"></div></div>
+ <div class="row" style="margin-top:12px"><button data-act="savePos" data-code="${code}">저장</button><button class="sec" data-act="resetPos" data-code="${code}">기본값으로</button></div>
+ <h2 style="margin-top:14px">추가 매수 / 부분 매도</h2>
+ <div class="grid2"><div><label>추가 매수 금액(원)</label><input id="p_add" inputmode="numeric" value="${C.buy_amount}"></div><div style="display:flex;align-items:flex-end"><button class="red" style="width:100%" data-act="addBuy" data-code="${code}">추가 매수(시장가)</button></div>
+ <div><label>매도 수량(주) · 비우면 전량</label><input id="p_sellq" inputmode="numeric" placeholder="${f(p.avail||p.qty)}주"></div><div style="display:flex;align-items:flex-end"><button style="width:100%;background:#2d6cdf" data-act="posSell" data-code="${code}">시장가 매도</button></div></div>
+ <div class="row" style="margin-top:10px"><button class="sec" data-act="close">닫기</button></div>`);}
+function stockSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:code};const o=S.stock_alerts[code]||{};const a=S.alerts;
+ openSheet(`<h3>🔔 ${esc(r.name)} <span class="mu">${code}</span></h3><div class="mu">비워 두면 기본값(알림 탭)을 따릅니다. <a href="#" data-act="chart" data-code="${code}" style="color:#6ea8ff">📈 네이버 차트</a></div>
+ <div class="sw"><input type="checkbox" id="k_mute" ${o.mute?'checked':''}><span>이 종목 알림 끄기 🔕</span></div>
+ <div class="grid2">
+ <div><label>전일대비 단계(%)</label><input id="k_day_step" inputmode="decimal" placeholder="기본 ${a.day_step}" value="${v(o.day_step)}"></div>
+ <div><label>편입가 대비 단계(%)</label><input id="k_entry_step" inputmode="decimal" placeholder="기본 ${a.entry_step}" value="${v(o.entry_step)}"></div>
+ <div><label>급등락 기준(%)</label><input id="k_surge_pct" inputmode="decimal" placeholder="기본 ${a.surge_pct}" value="${v(o.surge_pct)}"></div>
+ <div><label>급등락 시간창(분)</label><input id="k_surge_min" inputmode="decimal" placeholder="기본 ${a.surge_min}" value="${v(o.surge_min)}"></div>
+ <div><label>🎯 목표가(원) 이상</label><input id="k_price_up" inputmode="numeric" placeholder="없음" value="${v(o.price_up)}"></div>
+ <div><label>⛔ 손절가(원) 이하</label><input id="k_price_dn" inputmode="numeric" placeholder="없음" value="${v(o.price_dn)}"></div></div>
+ <div class="mu" style="margin-top:6px">현재가 ${r.price?f(r.price)+'원 ('+sg(r.rate)+')':'-'}${r.entry_price?' · 편입가 '+f(r.entry_price)+'원':''}</div>
+ <div class="row" style="margin-top:14px"><button data-act="saveStock" data-code="${code}">저장</button><button class="sec" data-act="resetStock" data-code="${code}">기본값으로</button></div>
+ <div class="row" style="margin-top:8px"><button class="sec" data-act="close">닫기</button>${r.manual?'':`<button class="sec" data-act="addWL" data-code="${code}">⭐ 관심 추가</button>`}<button class="red" data-act="del" data-code="${code}" data-g="">🗑 전체 삭제</button></div>`);}
+function ixSheet(code){const i=S.indices.find(x=>x.code===code);const o=S.index_alerts[code]||{};
+ openSheet(`<h3>🔔 ${i.name} 지수 알림</h3>
+ <div class="sw"><input type="checkbox" id="k_enabled" ${o.enabled!==false?'checked':''}><span>알림 사용</span></div>
+ <div class="grid2">
+ <div><label>등락률 단계(%)</label><input id="k_step" inputmode="decimal" placeholder="0=끔" value="${v(o.step)}"></div>
+ <div><label>급등락 기준(%)</label><input id="k_surge_pct" inputmode="decimal" placeholder="0=끔" value="${v(o.surge_pct)}"></div>
+ <div><label>급등락 시간창(분)</label><input id="k_surge_min" inputmode="decimal" placeholder="예: 5" value="${v(o.surge_min)}"></div>
+ <div></div>
+ <div><label>🎯 지수 이상 도달</label><input id="k_price_up" inputmode="decimal" placeholder="없음" value="${v(o.price_up)}"></div>
+ <div><label>⛔ 지수 이하 도달</label><input id="k_price_dn" inputmode="decimal" placeholder="없음" value="${v(o.price_dn)}"></div></div>
+ <div class="mu" style="margin-top:6px">현재 ${i.price?f(i.price,2)+' ('+sg(i.rate)+')':'-'}</div>
+ <div class="row" style="margin-top:14px"><button data-act="saveIx" data-code="${code}">저장</button><button class="sec" data-act="close">닫기</button></div>`);}
+const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
+let _askRes=null;
+function ask(msg,okLabel){return new Promise(res=>{_askRes=res;openSheet(`<h3 style="margin-bottom:14px;line-height:1.5;white-space:pre-line">${esc(msg)}</h3><div class="row"><button class="red" data-act="askYes">${esc(okLabel||'확인')}</button><button class="sec" data-act="askNo">취소</button></div>`);});}
+function answer(v){const r=_askRes;_askRes=null;closeSheet();if(r)r(v);}
+const IXURL={'001':'KOSPI','101':'KOSDAQ'};
+
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,code=b.dataset.code;
+ switch(a){
+ case 'start':act('/api/start');break; case 'stop':act('/api/stop');break; case 'conds':act('/api/conditions');break;
+ case 'saveSlots':{const sm=+$('#scanSel').value;if(sm!==S.scan_min)await api('/api/alerts',{scan_min:sm});act('/api/slots',{slots:readSlots()});break;}
+ case 'startAsk':startSheet();break;
+ case 'mode':{const sm=+b.dataset.m;closeSheet();await api('/api/alerts',{scan_min:sm});$('#scanSel').value=String(sm);act('/api/start');break;}
+ case 'search':{const s=readSlots()[+b.dataset.i];if(!s.seq&&!s.name){toast('조건식을 먼저 선택하세요');break;}const r=await act('/api/search',{seq:s.seq||s.name});if(r&&r.ok)document.querySelector('nav a[data-t=watch]').click();break;}
+ case 'saveWL':act('/api/watchlist',{text:$('#wl').value}).then(()=>{formsFilled=false;});break;
+ case 'saveAlerts':{const o={};['on_enter','on_exit','keep_after_exit','quiet','phone_notify','kakao_notify','autostart'].forEach(k=>o[k]=$('#a_'+k).checked);['day_step','entry_step','surge_pct','surge_min','cooldown_min','max_watch'].forEach(k=>o[k]=Number($('#a_'+k).value||0));act('/api/alerts',o);break;}
+ case 'saveSettings':act('/api/settings',{appkey:$('#s_appkey').value,secretkey:$('#s_secretkey').value,mock:$('#s_mock').checked,kakao_rest_key:$('#s_krest').value,kakao_client_secret:$('#s_ksecret').value}).then(()=>{formsFilled=false;});break;
+ case 'myip':act('/api/myip');break; case 'phoneTest':act('/api/phone/test');break; case 'kakaoTest':act('/api/kakao/test');break;
+ case 'kakaoLogin':location.href='/kakao/login?name='+enc($('#rname').value.trim()||'나')+'&pin='+enc(PIN);break;
+ case 'delR':if(await ask(dec(b.dataset.n)+' 을(를) 삭제할까요?','삭제'))act('/api/kakao/remove',{name:dec(b.dataset.n)});break;
+ case 'exit':if(await ask('감시를 멈추고 앱을 완전히 종료할까요?\n(다시 쓰려면 앱 아이콘을 누르세요)','종료'))location.href='app://exit';break;
+ case 'askYes':answer(true);break;
+ case 'buyTg':b.classList.toggle('on');toast(b.classList.contains('on')?'💰 자동매수 켬 – 적용을 눌러 저장하세요':'자동매수 끔 – 적용을 눌러 저장하세요');break;
+ case 'trToggle':{const on=!S.trade.enabled;if(on){const real=!S.trade.mock;if(!await ask(real?'⚠ 실전 계좌로 조건식 자동매수를 켭니다.\n실제 돈으로 주문이 나갑니다. 계속할까요?':'모의투자로 조건식 자동매수를 켤까요?',real?'실전 ON':'켜기'))break;}act('/api/trade/settings',{enabled:on});break;}
+ case 'trSave':{const o={};['buy_amount','take_profit','stop_loss','trail_pct','max_buys','max_positions','max_loss','index_stop','index_sell','buy_start','buy_end','close_time','order_type'].forEach(k=>o[k]=$('#tr_'+k).value.trim());o.bot_only=$('#tr_bot_only').checked;o.real_ok=$('#tr_real_ok').checked;
+   if(o.real_ok&&!S.trade_cfg.real_ok&&!await ask('실전 주문을 허용할까요?\n설정의 "모의투자 서버 사용"을 끄면 실제 계좌로 주문이 나갑니다.','허용'))break;
+   const r=await act('/api/trade/settings',o);if(r&&r.ok)trFilled=false;break;}
+ case 'trSell':{const p=S.trade.positions.find(x=>x.code===code);if(await ask(`${p?p.name:code} ${p?f(p.qty)+'주를 ':''}시장가로 매도할까요?`,'매도'))act('/api/trade/sell',{code});break;}
+ case 'trSellAll':if(await ask('보유 종목 전체를 시장가로 매도할까요?','전체 매도'))act('/api/trade/sellall');break;
+ case 'trResume':act('/api/trade/resume');break;
+ case 'tradeSheet':tradeSheet(code);break; case 'posSheet':posSheet(code);break;
+ case 'doBuy':{const qty=gv('b_qty'),amount=gv('b_amount'),type=$('#b_type').value,price=gv('b_price'),manage=$('#b_manage').checked;const r=S.watch.find(x=>x.code===code);
+   const what=qty?qty+'주':f(+amount.replace(/,/g,''))+'원어치';if(!await ask(`${r?r.name:code} ${what}를 ${type==='market'?'시장가':f(+price.replace(/,/g,''))+'원 지정가'}로 매수할까요?`+(S.trade.mock?'':'\n⚠ 실전 계좌 주문입니다'),'매수'))break;
+   act('/api/trade/buy',{code,qty,amount,order_type:type,price,manage});break;}
+ case 'doSell':case 'posSell':{const q=gv(a==='doSell'?'s_qty':'p_sellq');const p=held(code);if(!await ask(`${p?p.name:code} ${q?q+'주':'전량'}을 시장가로 매도할까요?`,'매도'))break;act('/api/trade/sell',{code,qty:q});break;}
+ case 'addBuy':{const amount=gv('p_add');const p=held(code);if(!await ask(`${p?p.name:code} ${f(+amount.replace(/,/g,''))}원어치를 시장가로 추가 매수할까요?`,'추가 매수'))break;act('/api/trade/buy',{code,amount,order_type:'market',manage:true});break;}
+ case 'savePos':{const s={auto:$('#p_auto').checked};['take_profit','stop_loss','trail_pct','tp_price','sl_price'].forEach(k=>s[k]=gv('p_'+k));const r=await act('/api/trade/pos',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'resetPos':{const r=await act('/api/trade/pos',{code,reset:true});if(r&&r.ok)closeSheet();break;} case 'trRefresh':act('/api/trade/refresh');break; case 'askNo':answer(false);break;
+ case 'chart':{e.preventDefault();const ix=b.dataset.ix;location.href=ix?`https://m.stock.naver.com/domestic/index/${IXURL[ix]}/total`:`https://m.stock.naver.com/domestic/stock/${code}/total`;break;}
+ case 'stockSheet':stockSheet(code);break; case 'ixSheet':ixSheet(code);break; case 'close':closeSheet();break;
+ case 'saveStock':{const s={mute:$('#k_mute').checked};['day_step','entry_step','surge_pct','surge_min','price_up','price_dn'].forEach(k=>s[k]=gv('k_'+k));const r=await act('/api/stock_alert',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'resetStock':{const r=await act('/api/stock_alert',{code,reset:true});if(r&&r.ok)closeSheet();break;}
+ case 'saveIx':{const s={enabled:$('#k_enabled').checked};['step','surge_pct','surge_min','price_up','price_dn'].forEach(k=>s[k]=gv('k_'+k));const r=await act('/api/index_alert',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'addWL':{const r=await act('/api/watch/add',{code});formsFilled=false;closeSheet();break;}
+ case 'del':{const g=dec(b.dataset.g||'');const r=S.watch.find(x=>x.code===code);const nm=r?r.name:code;
+   const where=g===''?'모든 목록':(g===MANUAL?'관심종목':'['+g+']');if(!await ask(`${nm} 을(를) ${where}에서 삭제할까요?`,'삭제'))break;
+   await act('/api/watch/remove',{code,group:g});closeSheet();formsFilled=false;break;}
+ case 'clear':{const g=dec(b.dataset.g);if(await ask(`[${g}] 목록을 모두 비울까요?`,'비우기'))act('/api/watch/clear',{group:g});break;}
+ }});
+async function refresh(){try{S=await api('/api/state');render();}catch(e){}}
+refresh();setInterval(refresh,1500);
+</script></body></html>
