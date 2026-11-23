@@ -53,7 +53,8 @@ public final class Store {
                         "surge_pct", 2.0, "surge_min", 3.0,
                         "index_step", 1.0, "cooldown_min", 5.0,
                         "keep_after_exit", true, "max_watch", 100.0, "quiet", false,
-                        "phone_notify", true, "kakao_notify", true, "autostart", true),
+                        "phone_notify", true, "kakao_notify", true, "autostart", true,
+                        "scan_min", 0.0),
                 // 종목별 개별 알림 설정 {종목코드: {mute, day_step, entry_step, surge_pct, surge_min, price_up, price_dn}}
                 "stock_alerts", new java.util.LinkedHashMap<String, Object>(),
                 // 지수별 알림 설정 (기본 켜짐)

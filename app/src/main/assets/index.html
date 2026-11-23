@@ -31,7 +31,7 @@ label{display:block;font-size:13px;color:var(--mu);margin:8px 0 4px}
 .st .l2{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12.5px;color:var(--mu)}.st .l2 .bt{margin-left:auto;display:flex;gap:5px}
 .ix{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1d263a}.ix:first-of-type{border-top:0}
 .ix .nm{font-weight:700;width:56px}.ix .v{flex:1;font-weight:700}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .log{font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
 .log .error{color:#ff8a8d}.log .warn{color:var(--warn)}.log .debug{color:#6f7c96}
 .alert{padding:9px 0;border-bottom:1px solid var(--line);white-space:pre-wrap;font-size:14px}.alert .t{color:var(--mu);font-size:12px}
@@ -48,7 +48,7 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
 #sheet h3{margin:0 0 4px;font-size:17px}.sw{display:flex;align-items:center;gap:10px;padding:10px 0;font-weight:600}
 </style></head><body>
 <header><div class="top"><span id="dot" class="dot"></span><span id="status">불러오는 중…</span>
-<button id="btnStart" data-act="start">▶ 시작</button><button id="btnStop" class="red" style="display:none" data-act="stop">■ 중지</button><button class="sec" data-act="exit" title="앱 완전 종료">⏻ 종료</button></div></header>
+<button id="btnStart" data-act="startAsk">▶ 시작</button><button id="btnStop" class="red" style="display:none" data-act="stop">■ 중지</button><button class="sec" data-act="exit" title="앱 완전 종료">✖ 종료</button></div></header>
 <main>
 <section class="tab on" id="t-watch">
   <div class="card"><h2>🏛 지수 <span class="sp"></span><span class="mu">기본 감시 · 🔔로 설정</span></h2><div id="ixs"></div></div>
@@ -59,6 +59,7 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
   <div class="card"><h2>조건검색식 슬롯</h2>
   <div class="mu">영웅문4 [0150]에서 저장한 조건식을 고르세요. <b>체크 + 적용</b> = 실시간 감시(편입 시 알림), <b>🔍</b> = 지금 바로 1회 검색.</div>
   <div id="slots" style="margin-top:6px"></div>
+  <label>검색 방식</label><select id="scanSel"><option value="0">⚡ 실시간 (편입 즉시)</option><option value="1">1분마다 재검색</option><option value="3">3분마다 재검색</option><option value="5">5분마다 재검색</option><option value="10">10분마다 재검색</option><option value="30">30분마다 재검색</option></select>
   <div class="row" style="margin-top:10px"><button class="sec" data-act="conds">↻ 목록 불러오기</button><button data-act="saveSlots">적용</button></div>
   <div class="help" id="condhelp"></div></div>
   <div class="card"><h2>⭐ 관심종목 (직접 감시)</h2><label>종목코드 (쉼표로 구분)</label><textarea id="wl" rows="2" placeholder="005930, 000660"></textarea>
@@ -101,7 +102,7 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
   <div class="help">키는 이 휴대폰 앱 안에만 저장됩니다. ‘abcd••••’로 보이면 이미 저장된 상태이며 비워두면 유지됩니다.<br>이 앱은 알림 전용이라 주문 기능이 없습니다. 모의투자 서버에서 조건검색이 안 되면 실전 서버(체크 해제) + 실전 App Key 로 바꿔 보세요.</div></div>
   <div class="card"><h2>백그라운드 실행</h2>
   <div class="mu">앱 화면을 닫아도 상단 알림창에 <b>📡 조건검색 알림</b>이 떠 있는 동안 계속 감시합니다.</div>
-  <div class="row" style="margin-top:10px"><button class="sec" onclick="location.href='app://battery'">🔋 절전 제외 허용</button><button class="red" data-act="exit">⏻ 앱 완전 종료</button></div>
+  <div class="row" style="margin-top:10px"><button class="sec" onclick="location.href='app://battery'">🔋 절전 제외 허용</button><button class="red" data-act="exit">✖ 앱 완전 종료</button></div>
   <div class="mu" style="margin-top:8px" id="ver"></div></div>
 </section>
 <section class="tab" id="t-log"><div class="card"><h2>로그 <span class="sp"></span><label class="nf" style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showDebug" checked>원본 응답</label></h2><div class="log" id="log"></div></div></section>
@@ -121,7 +122,7 @@ async function act(path,body){try{const r=await api(path,body||{});toast((r.ok?'
 const f=(n,d=0)=>n==null?'-':Number(n).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d});
 const cls=r=>r>0?'up':r<0?'dn':'';const sg=r=>r==null?'-':(r>0?'+':'')+Number(r).toFixed(2)+'%';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const enc=s=>encodeURIComponent(s);const dec=s=>decodeURIComponent(s);
+const enc=s=>encodeURIComponent(s);const mmss=t=>Math.floor(t/60)+':'+String(t%60).padStart(2,'0');const dec=s=>decodeURIComponent(s);
 
 function stockRow(r,g){
  const gi=g===MANUAL?null:r.groups.find(x=>x.name===g);
@@ -137,7 +138,7 @@ function renderWatch(){
  const actv=Object.values(S.active);let html='';
  for(const g of S.groups){const rows=S.watch.filter(r=>r.groups.some(x=>x.name===g));
   rows.sort((a,b)=>{const A=a.groups.find(x=>x.name===g),B=b.groups.find(x=>x.name===g);return (B.last||'').localeCompare(A.last||'');});
-  html+=`<div class="card"><h2>🔎 ${esc(g)} <span class="mu">${rows.length}종목</span>${actv.includes(g)?'<span class="badge live">실시간</span>':''}<span class="sp"></span>${rows.length?`<button class="sec sm" data-act="clear" data-g="${enc(g)}">비우기</button>`:''}</h2>${rows.length?rows.map(r=>stockRow(r,g)).join(''):'<div class="empty">아직 검색된 종목이 없습니다</div>'}</div>`;}
+  html+=`<div class="card"><h2>🔎 ${esc(g)} <span class="mu">${rows.length}종목</span>${actv.includes(g)?`<span class="badge live">${S.scan_min>0?S.scan_min+'분 주기'+(S.next_scan_sec>=0?' · '+mmss(S.next_scan_sec):''):'실시간'}</span>`:''}<span class="sp"></span>${rows.length?`<button class="sec sm" data-act="clear" data-g="${enc(g)}">비우기</button>`:''}</h2>${rows.length?rows.map(r=>stockRow(r,g)).join(''):'<div class="empty">아직 검색된 종목이 없습니다</div>'}</div>`;}
  const man=S.watch.filter(r=>r.manual);
  if(man.length)html+=`<div class="card"><h2>⭐ 관심종목 <span class="mu">${man.length}종목</span><span class="sp"></span></h2>${man.map(r=>stockRow(r,MANUAL)).join('')}</div>`;
  if(!S.groups.length&&!man.length)html=`<div class="card"><div class="empty">감시 중인 종목이 없습니다.<br>▶시작 → 🔎조건식 탭에서 조건식을 <b>적용</b>하거나 <b>🔍</b>를 누르세요.</div></div>`;
@@ -156,7 +157,7 @@ function render(){
  const sig=JSON.stringify([S.conditions,S.active]);if(sig!==condSig||!formsFilled){condSig=sig;renderSlots(formsFilled?readSlots():S.slots);}
  $('#condhelp').innerHTML=(S.conditions.length?`불러온 조건식 ${S.conditions.length}개 · 실시간 감시 중: ${Object.values(S.active).map(n=>`<span class="badge live">${esc(n)}</span>`).join('')||'없음'}`:'조건식 목록은 ▶시작(키움 연결) 후 자동으로 불러옵니다.')+'<br>결과가 안 나오면 📜로그 탭의 <b>수신 CNSRREQ</b> 줄을 캡처해 보내 주세요.';
  if(!formsFilled){formsFilled=true;const a=S.alerts;for(const k in a){const el=$('#a_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!a[k];else el.value=a[k];}
-  $('#wl').value=S.watchlist;const s=S.settings;$('#s_appkey').value=s.appkey;$('#s_secretkey').value=s.secretkey;$('#s_mock').checked=s.mock;$('#s_krest').value=s.kakao_rest_key;$('#s_ksecret').value=s.kakao_client_secret;}
+  $('#wl').value=S.watchlist;$('#scanSel').value=String(S.scan_min||0);const s=S.settings;$('#s_appkey').value=s.appkey;$('#s_secretkey').value=s.secretkey;$('#s_mock').checked=s.mock;$('#s_krest').value=s.kakao_rest_key;$('#s_ksecret').value=s.kakao_client_secret;}
 }
 function renderSlots(slots){const C=S.conditions;const live=Object.keys(S.active);
  $('#slots').innerHTML=slots.map((s,i)=>{const on=live.includes(s.seq)||Object.values(S.active).includes(s.name);
@@ -172,6 +173,10 @@ function openSheet(html){$('#sheet').innerHTML=html;$('#sheet').style.display='b
 function closeSheet(){$('#sheet').style.display='none';$('#mask').style.display='none';}
 $('#mask').onclick=()=>{if(_askRes)answer(false);else closeSheet();};
 const v=x=>(x==null||x===0||x==='')?'':x;
+function startSheet(){const cur=S.scan_min||0;const opts=[[0,'⚡ 실시간'],[1,'1분'],[3,'3분'],[5,'5분'],[10,'10분'],[30,'30분']];
+ openSheet(`<h3>조건검색 방식 선택</h3><div class="mu" style="margin-bottom:12px">⚡실시간: 키움이 편입 신호를 보내는 즉시 알림<br>N분: N분마다 조건식을 다시 검색해서 새로 잡힌 종목 알림 (실시간 신호가 안 올 때 사용)</div>
+ <div class="grid3">${opts.map(([m,l])=>`<button class="${m===cur?'':'sec'}" data-act="mode" data-m="${m}">${l}${m===cur?' ✓':''}</button>`).join('')}</div>
+ <div class="row" style="margin-top:12px"><button class="sec" data-act="close">취소</button></div>`);}
 function stockSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:code};const o=S.stock_alerts[code]||{};const a=S.alerts;
  openSheet(`<h3>🔔 ${esc(r.name)} <span class="mu">${code}</span></h3><div class="mu">비워 두면 기본값(알림 탭)을 따릅니다. <a href="#" data-act="chart" data-code="${code}" style="color:#6ea8ff">📈 네이버 차트</a></div>
  <div class="sw"><input type="checkbox" id="k_mute" ${o.mute?'checked':''}><span>이 종목 알림 끄기 🔕</span></div>
@@ -206,7 +211,9 @@ const IXURL={'001':'KOSPI','101':'KOSDAQ'};
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,code=b.dataset.code;
  switch(a){
  case 'start':act('/api/start');break; case 'stop':act('/api/stop');break; case 'conds':act('/api/conditions');break;
- case 'saveSlots':act('/api/slots',{slots:readSlots()});break;
+ case 'saveSlots':{const sm=+$('#scanSel').value;if(sm!==S.scan_min)await api('/api/alerts',{scan_min:sm});act('/api/slots',{slots:readSlots()});break;}
+ case 'startAsk':startSheet();break;
+ case 'mode':{const sm=+b.dataset.m;closeSheet();await api('/api/alerts',{scan_min:sm});$('#scanSel').value=String(sm);act('/api/start');break;}
  case 'search':{const s=readSlots()[+b.dataset.i];if(!s.seq&&!s.name){toast('조건식을 먼저 선택하세요');break;}const r=await act('/api/search',{seq:s.seq||s.name});if(r&&r.ok)document.querySelector('nav a[data-t=watch]').click();break;}
  case 'saveWL':act('/api/watchlist',{text:$('#wl').value}).then(()=>{formsFilled=false;});break;
  case 'saveAlerts':{const o={};['on_enter','on_exit','keep_after_exit','quiet','phone_notify','kakao_notify','autostart'].forEach(k=>o[k]=$('#a_'+k).checked);['day_step','entry_step','surge_pct','surge_min','cooldown_min','max_watch'].forEach(k=>o[k]=Number($('#a_'+k).value||0));act('/api/alerts',o);break;}

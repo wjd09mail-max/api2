@@ -106,7 +106,7 @@ public final class Engine {
         /** [이름, 현재가, 등락률] */
         Object[] stockInfo(String code) throws Exception {
             Map<String, Object> js = call("ka10001", "/api/dostk/stkinfo", Json.map("stk_cd", code));
-            return new Object[]{Json.s(js.get("stk_nm")).trim(), Math.abs(Json.d(js.get("cur_prc"), 0)), Json.d(js.get("flu_rt"), 0)};
+            return new Object[]{Json.s(js.get("stk_nm")).trim(), Math.abs(Json.d(js.get("cur_prc"), 0)), fixRate(Json.d(js.get("flu_rt"), 0))};
         }
 
         /** 업종 현재가 [현재가, 등락률] (실패 시 null) */
@@ -180,7 +180,11 @@ public final class Engine {
     private Thread thread;
     private volatile List<String[]> conditions = new ArrayList<>();
     private final Map<String, String> active = new LinkedHashMap<>();          // 실시간 등록된 seq → 이름
-    private final ArrayDeque<String[]> pendingReq = new ArrayDeque<>();        // [seq, search_type]
+    private final ArrayDeque<String[]> pendingReq = new ArrayDeque<>();        // [seq, search_type, tag]
+    private final Set<String> rtReg = new HashSet<>();                          // 실시간 등록(CNSRREQ type 1)된 seq
+    private final java.util.concurrent.LinkedBlockingDeque<String[]> scanQueue = new java.util.concurrent.LinkedBlockingDeque<>();
+    private final Map<String, Set<String>> pageCodes = new ConcurrentHashMap<>();
+    private volatile long nextScan = 0;
     private final Map<String, Integer> pageCount = new ConcurrentHashMap<>();             // 연속조회 누적 종목수
     private final Map<String, Watch> watch = new LinkedHashMap<>();
     private final Map<String, Ix> indices = new LinkedHashMap<>();
@@ -207,6 +211,9 @@ public final class Engine {
         Thread t = new Thread(this::infoWorker, "info");
         t.setDaemon(true);
         t.start();
+        Thread sc = new Thread(this::scanLoop, "scan");
+        sc.setDaemon(true);
+        sc.start();
         Thread s = new Thread(() -> {
             while (true) {
                 try {
@@ -249,6 +256,28 @@ public final class Engine {
 
     static String g(double v) {
         return v == Math.rint(v) ? Long.toString((long) v) : String.valueOf(v);
+    }
+
+    /** 국내 주식 등락률은 ±30% 이내. 범위를 벗어나면 100배 값으로 보고 보정 */
+    static double fixRate(double r) {
+        return Math.abs(r) > 30.5 ? r / 100.0 : r;
+    }
+
+    /** 조건검색 결과의 등락률: 소수점 없이 오면 100배 값(예: -647 = -6.47%) */
+    static double searchRate(Object raw) {
+        String t = Json.s(raw).trim();
+        double d = Json.d(raw, 0);
+        if (!t.isEmpty() && t.indexOf('.') < 0) d = d / 100.0;
+        return fixRate(d);
+    }
+
+    public int scanMin() {
+        double d = scanMinD();
+        return d <= 0 ? 0 : (int) Math.max(1, Math.round(d));
+    }
+
+    double scanMinD() {
+        return Math.max(0, Json.d(gAlerts.get("scan_min"), 0));
     }
 
     static String clip(String s, int n) {
@@ -313,7 +342,9 @@ public final class Engine {
         synchronized (lock) {
             active.clear();
             pendingReq.clear();
+            rtReg.clear();
         }
+        scanQueue.clear();
         saveState();
         Logx.add("감시 중지");
         return new Object[]{true, "중지"};
@@ -389,7 +420,10 @@ public final class Engine {
             active.clear();
             pendingReq.clear();
             pageCount.clear();
+            rtReg.clear();
         }
+        scanQueue.clear();
+        pageCodes.clear();
     }
 
     private void session() throws Exception {
@@ -423,7 +457,7 @@ public final class Engine {
                     error = "";
                     if (!lastAuthErr.isEmpty()) kakao.push("✅ 키움 재접속 성공");
                     lastAuthErr = "";
-                    status = "실시간 감시 중" + (cfg.bool("kiwoom", "mock") ? " (모의)" : "");
+                    status = "감시 중" + (cfg.bool("kiwoom", "mock") ? " (모의)" : "");
                     Logx.add("키움 실시간 서버 로그인 성공" + (cfg.bool("kiwoom", "mock") ? " – 모의투자 서버" : " – 실전 서버"));
                     afterLogin();
                     break;
@@ -515,8 +549,12 @@ public final class Engine {
     }
 
     private void sendCondReq(String seq, String type, String contYn, String nextKey) {
+        sendCondReq(seq, type, contYn, nextKey, "1".equals(type) ? "real" : "manual");
+    }
+
+    private void sendCondReq(String seq, String type, String contYn, String nextKey, String tag) {
         synchronized (lock) {
-            pendingReq.addLast(new String[]{seq, type});
+            pendingReq.addLast(new String[]{seq, type, tag});
         }
         send(Json.map("trnm", "CNSRREQ", "seq", seq, "search_type", type, "stex_tp", "K",
                 "cont_yn", contYn, "next_key", nextKey));
@@ -538,16 +576,22 @@ public final class Engine {
             else if (!Json.s(s.get("name")).isEmpty() || !Json.s(s.get("seq")).isEmpty())
                 unresolved.add(!Json.s(s.get("name")).isEmpty() ? Json.s(s.get("name")) : Json.s(s.get("seq")));
         }
+        int sm = scanMin();
+        boolean scanMode = scanMinD() > 0;
         List<String[]> toReq = new ArrayList<>();
+        List<String> toScan = new ArrayList<>();
         synchronized (lock) {
             for (String seq : new ArrayList<>(active.keySet())) {
-                if (!want.containsKey(seq)) {
-                    send(Json.map("trnm", "CNSRCLR", "seq", seq));
+                boolean modeChanged = scanMode == rtReg.contains(seq);
+                if (!want.containsKey(seq) || modeChanged) {
+                    if (rtReg.remove(seq)) send(Json.map("trnm", "CNSRCLR", "seq", seq));
                     String nm = active.remove(seq);
-                    Logx.add("조건 실시간 해제: " + nm);
-                    for (Watch w : watch.values()) {
-                        Src s = w.groups.get(nm);
-                        if (s != null) s.active = false;
+                    if (!want.containsKey(seq)) {
+                        Logx.add("조건 감시 해제: " + nm);
+                        for (Watch w : watch.values()) {
+                            Src s = w.groups.get(nm);
+                            if (s != null) s.active = false;
+                        }
                     }
                     dirty = true;
                 }
@@ -555,7 +599,11 @@ public final class Engine {
             for (Map.Entry<String, String> e : want.entrySet()) {
                 if (!active.containsKey(e.getKey())) {
                     active.put(e.getKey(), e.getValue());
-                    toReq.add(new String[]{e.getKey(), e.getValue()});
+                    if (scanMode) toScan.add(e.getKey());
+                    else {
+                        rtReg.add(e.getKey());
+                        toReq.add(new String[]{e.getKey(), e.getValue()});
+                    }
                 }
             }
         }
@@ -564,12 +612,53 @@ public final class Engine {
             sendCondReq(r[0], "1", "N", "");
             Logx.add("조건 실시간 등록 요청: [" + r[0] + "] " + r[1]);
         }
-        String msg = "적용: " + want.size() + "개 실시간 감시";
+        for (String seq : toScan) {
+            scanQueue.addLast(new String[]{seq, "scanFirst"});
+            Logx.add("조건 " + sm + "분 주기 검색 등록: [" + seq + "] " + condName(seq));
+        }
+        if (scanMode) nextScan = System.currentTimeMillis() + (long) (scanMinD() * 60_000);
+        String msg = "적용: " + want.size() + "개 " + (scanMode ? sm + "분 주기 검색" : "실시간 감시");
         if (!unresolved.isEmpty()) {
             msg += " / 찾을 수 없는 조건식: " + String.join(", ", unresolved);
             Logx.add("영웅문4에 없는 조건식 이름: " + String.join(", ", unresolved), "warn");
         }
         return new Object[]{true, msg};
+    }
+
+    /** 주기 검색 스케줄러: N분마다 감시 중인 조건식을 다시 검색 */
+    private void scanLoop() {
+        long lastSent = 0;
+        while (true) {
+            try {
+                Thread.sleep(300);
+                if (!connected) continue;
+                double sm = scanMinD();
+                long now = System.currentTimeMillis();
+                if (sm > 0 && nextScan > 0 && now >= nextScan) {
+                    nextScan = now + (long) (sm * 60_000);
+                    List<String> seqs;
+                    synchronized (lock) {
+                        seqs = new ArrayList<>(active.keySet());
+                    }
+                    for (String q : seqs) scanQueue.addLast(new String[]{q, "scan"});
+                }
+                if (!scanQueue.isEmpty() && now - lastSent >= 1500) {   // 조건식 사이 1.5초 간격
+                    String[] job = scanQueue.pollFirst();
+                    if (job == null) continue;
+                    synchronized (lock) {
+                        if (!active.containsKey(job[0])) continue;
+                    }
+                    pageCount.put(job[0] + "|0", 0);
+                    pageCodes.put(job[0] + "|0", new HashSet<String>());
+                    sendCondReq(job[0], "0", "N", "", job[1]);
+                    lastSent = now;
+                }
+            } catch (InterruptedException e) {
+                return;
+            } catch (Exception e) {
+                Logx.add("주기 검색 오류: " + e.getMessage(), "warn");
+            }
+        }
     }
 
     /** 조건식 즉시 검색 (1회 조회, search_type 0) */
@@ -599,9 +688,11 @@ public final class Engine {
             }
             if (req == null && !pendingReq.isEmpty()) req = pendingReq.pollFirst();
         }
-        if (req == null) req = new String[]{seq, type.isEmpty() ? "1" : type};
+        if (req == null) req = new String[]{seq, type.isEmpty() ? "1" : type, type.equals("0") ? "manual" : "real"};
         seq = req[0];
         type = req[1];
+        String tag = req.length > 2 ? req[2] : "";
+        boolean scanTag = "scan".equals(tag) || "scanFirst".equals(tag);
         String name = condName(seq);
         boolean realtime = "1".equals(type);
         if (!"0".equals(Json.s(js.get("return_code")))) {
@@ -623,7 +714,11 @@ public final class Engine {
             String nm = Json.s(m.get("302")).trim();
             if (!nm.isEmpty()) names.put(code, nm);
             double p = Math.abs(Json.d(m.get("10"), 0));
-            addSource(code, name, realtime ? "init" : "search", p, Json.d(m.get("12"), 0));
+            addSource(code, name, realtime ? "init" : (scanTag ? tag : "search"), p, searchRate(m.get("12")));
+            if (scanTag) {
+                Set<String> set = pageCodes.get(seq + "|0");
+                if (set != null) set.add(code);
+            }
             n++;
         }
         String key = seq + "|" + type;
@@ -631,10 +726,29 @@ public final class Engine {
         pageCount.put(key, total);
         String cont = Json.s(js.get("cont_yn")), next = Json.s(js.get("next_key"));
         if ("Y".equals(cont) && !next.isEmpty()) {          // 연속조회: 나머지 이어받기
-            sendCondReq(seq, type, "Y", next);
+            sendCondReq(seq, type, "Y", next, tag);
             return;
         }
         pageCount.remove(key);
+        if (scanTag) {
+            Set<String> found = pageCodes.remove(seq + "|0");
+            if (found == null) found = new HashSet<>();
+            List<String> gone = new ArrayList<>();
+            synchronized (lock) {
+                for (Watch w : watch.values()) {
+                    Src s = w.groups.get(name);
+                    if (s != null && s.active && !found.contains(w.code)) gone.add(w.code);
+                }
+            }
+            for (String c : gone) removeSource(c, name);
+            if ("scanFirst".equals(tag)) {
+                Logx.add("조건 [" + name + "] " + scanMin() + "분 주기 감시 시작 – 현재 " + total + "종목");
+                kakao.push("🟢 [" + name + "] " + scanMin() + "분 주기 감시 시작\n현재 " + total + "종목");
+            } else {
+                Logx.add("조건 [" + name + "] 주기 검색 " + total + "종목 (빠짐 " + gone.size() + ")");
+            }
+            return;
+        }
         if (realtime) {
             Logx.add("조건 [" + name + "] 실시간 감시 시작 – 현재 " + total + "종목");
             kakao.push("🟢 [" + name + "] 감시 시작\n현재 편입 " + total + "종목");
@@ -700,6 +814,7 @@ public final class Engine {
     /** kind: real(실시간 편입) / init(실시간 등록 시 현재 종목) / search(즉시 검색) */
     private void addSource(String code, String cond, String kind, double p0, double r0) {
         boolean real = "real".equals(kind);
+        boolean alertIt = false;
         boolean count;
         synchronized (lock) {
             checkDay();
@@ -717,28 +832,30 @@ public final class Engine {
             }
             // 실시간 편입은 항상 +1, 즉시검색은 새로 잡혔을 때만, 재접속 시 현재목록(init)은 처음 보는 종목만
             if (real) count = true;
-            else if ("search".equals(kind)) count = !wasActive;
-            else count = s.hits == 0;
+            else if ("search".equals(kind) || "scan".equals(kind)) count = !wasActive;
+            else count = s.hits == 0;                         // init / scanFirst
+            boolean entered = real || ("scan".equals(kind) && !wasActive);
+            alertIt = entered;
             if (count) {
                 s.hits++;
                 hitMemo.put(key, s.hits);
                 s.last = now;
             }
             s.active = true;
-            if (real && !wasActive) {
+            if (entered && !wasActive) {
                 w.enteredAt = now;
                 w.entryPrice = 0;
                 w.entUp = w.entDn = 0;
             } else if (w.enteredAt == 0) {
                 w.enteredAt = now;
             }
-            if (p0 > 0 && w.price == 0) {
+            if (p0 > 0 && (w.price == 0 || !"init".equals(kind))) {
                 w.price = p0;
                 w.rate = r0;
             }
             dirty = true;
         }
-        infoQ.offer(new String[]{code, real ? cond : null});
+        infoQ.offer(new String[]{code, alertIt ? cond : null});
     }
 
     private void removeSource(String code, String cond) {
@@ -883,7 +1000,7 @@ public final class Engine {
                     String n2 = (String) info[0];
                     p = (Double) info[1];
                     r = (Double) info[2];
-                    if (!n2.isEmpty()) {
+                    if (!n2.isEmpty() && !n2.equals(code)) {
                         name = n2;
                         names.put(code, n2);
                     }
@@ -949,7 +1066,7 @@ public final class Engine {
             if ("I".equals(io)) addSource(code, name, "real", 0, 0);
             else if ("D".equals(io)) removeSource(code, name);
         } else if ("0B".equals(typ)) {
-            onTick(cleanCode(item.get("item")), Math.abs(Json.d(v.get("10"), 0)), Json.d(v.get("12"), 0));
+            onTick(cleanCode(item.get("item")), Math.abs(Json.d(v.get("10"), 0)), fixRate(Json.d(v.get("12"), 0)));
         } else if ("0J".equals(typ)) {
             if (!loggedReal0J) {
                 loggedReal0J = true;
@@ -1214,7 +1331,7 @@ public final class Engine {
                         w.enteredAt = (long) Json.d(m.get("entered_at"), 0);
                         w.entryPrice = Json.d(m.get("entry_price"), 0);
                         w.price = Json.d(m.get("price"), 0);
-                        w.rate = Json.d(m.get("rate"), 0);
+                        w.rate = fixRate(Json.d(m.get("rate"), 0));
                     }
                     if (!w.groups.isEmpty() || w.manual) watch.put(code, w);
                 }
@@ -1230,7 +1347,8 @@ public final class Engine {
         if (!connected) return status;
         synchronized (lock) {
             Ix k = indices.get("001"), q = indices.get("101");
-            String s = "감시 " + watch.size() + "종목 · 조건 " + active.size() + "개";
+            int sm = scanMin();
+            String s = "감시 " + watch.size() + "종목 · 조건 " + active.size() + "개" + (sm > 0 ? "(" + sm + "분)" : "(실시간)");
             if (k != null && k.price > 0) s += " · 코스피 " + pct(k.rate);
             if (q != null && q.price > 0) s += " · 코스닥 " + pct(q.rate);
             return s;
@@ -1272,6 +1390,8 @@ public final class Engine {
             return Json.map("running", running, "connected", connected, "status", status, "error", error,
                     "conditions", conds, "active", new LinkedHashMap<String, Object>(active),
                     "groups", new ArrayList<Object>(groupNames),
+                    "scan_min", scanMin(),
+                    "next_scan_sec", (scanMin() > 0 && nextScan > 0 && connected) ? Math.max(0, (nextScan - System.currentTimeMillis()) / 1000) : -1,
                     "watch", rows, "indices", ixs);
         }
     }

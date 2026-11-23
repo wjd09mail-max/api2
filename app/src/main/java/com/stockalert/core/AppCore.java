@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "2.1.1";
+    public static final String VERSION = "2.2.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
@@ -391,7 +391,7 @@ public final class AppCore {
             }
             case "/api/alerts": {
                 String[] bools = {"on_enter", "on_exit", "keep_after_exit", "quiet", "phone_notify", "kakao_notify", "autostart"};
-                String[] nums = {"day_step", "entry_step", "surge_pct", "surge_min", "index_step", "cooldown_min", "max_watch"};
+                String[] nums = {"day_step", "entry_step", "surge_pct", "surge_min", "index_step", "cooldown_min", "max_watch", "scan_min"};
                 synchronized (cfg.lock) {
                     Map<String, Object> a = cfg.sec("alerts");
                     for (String k : bools) if (b.containsKey(k)) a.put(k, Json.b(b.get(k)));
@@ -405,6 +405,12 @@ public final class AppCore {
                     cfg.save();
                 }
                 engine.resetLevels();
+                if (b.containsKey("scan_min")) {
+                    int sm = engine.scanMin();
+                    String mode = sm > 0 ? sm + "분 주기 검색" : "실시간";
+                    if (engine.connected) engine.applySlots();
+                    return new Object[]{true, "조건검색 방식: " + mode};
+                }
                 return new Object[]{true, "알림 설정 저장됨"};
             }
             case "/api/myip": {
