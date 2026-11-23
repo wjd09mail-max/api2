@@ -17,14 +17,13 @@ jobs:
       - name: Find project and fix gradle files
         id: proj
         run: |
-          echo "== 저장소 파일 =="
-          find . -maxdepth 3 -not -path './.git*' | sort | head -60
-          # 최신 앱 코드(Trader.java)가 있는 폴더를 프로젝트 위치로 사용
           T=$(find . -path '*/app/src/main/java/com/stockalert/core/Trader.java' -not -path './.git/*' | head -1)
           if [ -z "$T" ]; then T=$(find . -path '*/app/src/main/AndroidManifest.xml' -not -path './.git/*' | head -1); fi
           if [ -z "$T" ]; then echo "::error::app 폴더를 찾을 수 없습니다. 앱 소스를 업로드하세요."; exit 1; fi
           D=$(echo "$T" | sed 's#/app/src/main/.*##')
           echo "프로젝트 위치: $D"
+          echo "== 루트 =="; ls -la "$D"
+          echo "== app =="; ls -la "$D/app"
           cat > "$D/build.gradle" <<'EOF'
           buildscript {
               repositories {
@@ -54,7 +53,51 @@ jobs:
           include ':app'
           EOF
           printf 'org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.useAndroidX=false\nandroid.nonTransitiveRClass=true\n' > "$D/gradle.properties"
-          grep -h versionName "$D/app/build.gradle" || true
+          cat > "$D/app/build.gradle" <<'EOF'
+          apply plugin: 'com.android.application'
+
+          android {
+              namespace 'com.stockalert'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId "com.stockalert"
+                  minSdk 26
+                  targetSdk 35
+                  versionCode 9
+                  versionName "3.1.1"
+              }
+
+              signingConfigs {
+                  fixed {
+                      storeFile file('stockalert.keystore')
+                      storePassword 'stockalert'
+                      keyAlias 'stockalert'
+                      keyPassword 'stockalert'
+                      storeType 'pkcs12'
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig file('stockalert.keystore').exists() ? signingConfigs.fixed : signingConfigs.debug
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+                  encoding 'UTF-8'
+              }
+
+              lint {
+                  abortOnError false
+                  checkReleaseBuilds false
+              }
+          }
+          EOF
+          if [ -f "$D/app/stockalert.keystore" ]; then echo "서명키: 고정키 사용"; else echo "::warning::app/stockalert.keystore 없음 → 임시 서명. 기존 앱을 삭제 후 설치해야 합니다."; fi
           echo "dir=$D" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v5
