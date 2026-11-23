@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.1.0";
+    public static final String VERSION = "3.2.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
@@ -380,6 +380,8 @@ public final class AppCore {
                 boolean manage = !b.containsKey("manage") || Json.b(b.get("manage"));
                 return trader.manualBuy(code, engine.nameOf(code), amount, qty, market, price, manage);
             }
+            case "/api/trade/ixrule":
+                return trader.editRule(Json.s(b.get("op")), Json.obj(b.get("rule")));
             case "/api/trade/pos":
                 return trader.setPos(Engine.cleanCode(b.get("code")), Json.obj(b.get("settings")), Json.b(b.get("reset")));
             case "/api/trade/resume":

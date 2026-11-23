@@ -111,6 +111,8 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
 <section class="tab" id="t-trade">
   <div class="card" id="trStatus"></div>
   <div class="card"><h2>💼 보유 종목 <span class="sp"></span><button class="sec sm" data-act="trRefresh">↻ 잔고</button><button class="red sm" data-act="trSellAll">전체 매도</button></h2><div id="trPos"></div></div>
+  <div class="card"><h2>🏛 지수 연동 매매 <span class="sp"></span><button class="sm" data-act="ruleSheet" data-ix="001">＋ 규칙 추가</button></h2><div id="trRules"></div>
+   <div class="mu" style="margin-top:6px">지수 조건이 맞으면 정해 둔 동작을 <b>하루 1번</b> 실행합니다 (평일 09:00~15:20).</div></div>
   <div class="card"><h2>⚙️ 자동매매 설정</h2>
    <div class="grid2">
     <div><label>종목당 매수 금액(원)</label><input id="tr_buy_amount" inputmode="numeric"></div>
@@ -234,6 +236,7 @@ function renderTrade(){const T=S.trade,C=S.trade_cfg;const buySlots=(S.slots||[]
  ${T.balance_err?`<div class="mu" style="color:#ffb020;margin-top:4px">잔고 조회: ${esc(T.balance_err)}</div>`:''}`;
  $('#trPos').innerHTML=T.positions.length?T.positions.map(p=>`<div class="st"><div class="l1" data-act="chart" data-code="${p.code}"><span class="nm link">${esc(p.name)}</span><span class="cd">${p.code}</span>${p.auto?'<span class="badge live">🤖자동매도</span>':'<span class="badge">자동매도 OFF</span>'}${p.custom?'<span class="badge">⚙개별</span>':''}${p.bot?'':'<span class="badge">직접보유</span>'}${p.pending?'<span class="badge off">매도중</span>':''}${p.wait?'<span class="badge">체결대기</span>':''}<span class="px">${f(p.last)}<small class="${cls(p.pnl)}">${sg(p.pnl)}</small></span></div>
   <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
+ $('#trRules').innerHTML=ruleList(T.rules);
  $('#trOrders').innerHTML=T.orders.length?T.orders.map(o=>`<div class="od"><span class="mu">${o.t}</span> <span class="s ${o.side==='매수'?'up':'dn'}">${o.side}</span><b>${esc(o.name||o.code)}</b> ${f(o.qty)}주 ${o.price?'@'+f(o.price):''} ${o.ok?'✅':'❌'}<div class="mu">${esc(o.reason)} · ${esc(o.msg)}</div></div>`).join(''):'<div class="empty">오늘 주문이 없습니다</div>';
  if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}}}
 function render(){
@@ -269,6 +272,40 @@ function startSheet(){const cur=S.scan_min||0;const opts=[[0,'⚡ 실시간'],[1
  openSheet(`<h3>조건검색 방식 선택</h3><div class="mu" style="margin-bottom:12px">⚡실시간: 키움이 편입 신호를 보내는 즉시 알림<br>N분: N분마다 조건식을 다시 검색해서 새로 잡힌 종목 알림 (실시간 신호가 안 올 때 사용)</div>
  <div class="grid3">${opts.map(([m,l])=>`<button class="${m===cur?'':'sec'}" data-act="mode" data-m="${m}">${l}${m===cur?' ✓':''}</button>`).join('')}</div>
  <div class="row" style="margin-top:12px"><button class="sec" data-act="close">취소</button></div>`);}
+function ruleList(rs){return rs.length?rs.map(r=>`<div class="od"><span class="badge ${r.enabled?'live':''}">${r.name}</span> <b>${esc(r.cond)}</b> → ${esc(r.action)} ${r.fired?'<span class="badge off">오늘 실행됨</span>':''}
+ <div class="row" style="margin-top:4px;justify-content:flex-end;gap:6px"><span></span>${r.fired?`<button class="sec sm nf" data-act="ruleOp" data-op="rearm" data-id="${r.id}">다시 실행 가능</button>`:''}<button class="sec sm nf" data-act="ruleOp" data-op="toggle" data-id="${r.id}">${r.enabled?'끄기':'켜기'}</button><button class="sec sm nf" data-act="ruleOp" data-op="del" data-id="${r.id}">🗑</button></div></div>`).join(''):'<div class="empty">규칙이 없습니다 – ＋ 규칙 추가</div>';}
+const PRESET={'001':{inv:['114800','KODEX 인버스'],lev:['122630','KODEX 레버리지']},'101':{inv:['251340','KODEX 코스닥150선물인버스'],lev:['233740','KODEX 코스닥150레버리지']}};
+function ruleSheet(ix){const C=S.trade_cfg;
+ openSheet(`<h3>🏛 지수 연동 매매 규칙 추가</h3>
+ <div class="mu">빠른 설정 (값은 바꿀 수 있음)</div>
+ <div class="grid2" style="gap:6px;margin-top:6px"><button class="sec sm" data-act="preset" data-p="def">🛡 −2% 하락 → 전량 매도</button><button class="sec sm" data-act="preset" data-p="half">✂ 5분 −1% 급락 → 50% 매도</button>
+ <button class="sec sm" data-act="preset" data-p="inv">🔻 −1.5% → 인버스 ETF 매수</button><button class="sec sm" data-act="preset" data-p="lev">🔺 +1% → 레버리지 ETF 매수</button></div>
+ <div class="grid2" style="margin-top:6px">
+ <div><label>지수</label><select id="ru_index"><option value="001" ${ix==='001'?'selected':''}>코스피</option><option value="101" ${ix==='101'?'selected':''}>코스닥</option></select></div>
+ <div><label>조건</label><select id="ru_cond"><option value="rate_le">등락률 −N% 이하</option><option value="rate_ge">등락률 +N% 이상</option><option value="surge_dn">N분 내 −X% 급락</option><option value="surge_up">N분 내 +X% 급등</option><option value="price_le">지수 값 이하</option><option value="price_ge">지수 값 이상</option></select></div>
+ <div><label id="ru_vlabel">값(%)</label><input id="ru_value" inputmode="decimal" placeholder="예: 2"></div>
+ <div class="ru_min"><label>시간창(분)</label><input id="ru_minutes" inputmode="numeric" value="5"></div>
+ <div><label>동작</label><select id="ru_action"><option value="sell_all">보유 종목 전량 매도</option><option value="sell_pct">보유 종목 일부(%) 매도</option><option value="buy">종목(ETF 등) 매수</option><option value="halt_buy">조건식 자동매수 중지</option><option value="resume_buy">조건식 자동매수 재개</option></select></div>
+ <div class="ru_scope"><label>매도 대상</label><select id="ru_scope"><option value="auto">자동매도 켜진 종목만</option><option value="all">보유 종목 전체</option></select></div>
+ <div class="ru_pct"><label>매도 비율(%)</label><input id="ru_pct" inputmode="numeric" value="50"></div>
+ <div class="ru_buy"><label>종목코드</label><input id="ru_code" inputmode="numeric" placeholder="예: 114800"></div>
+ <div class="ru_buy"><label>종목명(표시용)</label><input id="ru_name" placeholder="예: KODEX 인버스"></div>
+ <div class="ru_buy"><label>매수 금액(원)</label><input id="ru_amount" inputmode="numeric" value="${C.buy_amount}"></div></div>
+ <div class="help">ETF 코드는 예시입니다. 키움/네이버에서 종목코드를 꼭 확인하세요. 매수는 시장가, 매수 후 자동매도(익절/손절) 관리 대상이 됩니다.</div>
+ <div class="row" style="margin-top:10px"><button data-act="ruleAdd">추가</button><button class="sec" data-act="close">닫기</button></div>`);updRuleForm();}
+function updRuleForm(){const c=$('#ru_cond'),a=$('#ru_action');if(!c||!a)return;const cv=c.value,av=a.value;
+ document.querySelectorAll('.ru_min').forEach(e=>e.style.display=cv.startsWith('surge')?'':'none');
+ $('#ru_vlabel').textContent=cv.startsWith('price')?'지수 값':'값(%)';
+ document.querySelectorAll('.ru_scope').forEach(e=>e.style.display=av.startsWith('sell')?'':'none');
+ document.querySelectorAll('.ru_pct').forEach(e=>e.style.display=av==='sell_pct'?'':'none');
+ document.querySelectorAll('.ru_buy').forEach(e=>e.style.display=av==='buy'?'':'none');}
+document.addEventListener('change',e=>{if(e.target&&(e.target.id==='ru_cond'||e.target.id==='ru_action'||e.target.id==='ru_index'))updRuleForm();});
+function applyPreset(k){const ix=$('#ru_index').value;const set=(id,v)=>{$('#'+id).value=v;};
+ if(k==='def'){set('ru_cond','rate_le');set('ru_value','2');set('ru_action','sell_all');set('ru_scope','auto');}
+ if(k==='half'){set('ru_cond','surge_dn');set('ru_value','1');set('ru_minutes','5');set('ru_action','sell_pct');set('ru_pct','50');set('ru_scope','auto');}
+ if(k==='inv'){set('ru_cond','rate_le');set('ru_value','1.5');set('ru_action','buy');set('ru_code',PRESET[ix].inv[0]);set('ru_name',PRESET[ix].inv[1]);}
+ if(k==='lev'){set('ru_cond','rate_ge');set('ru_value','1');set('ru_action','buy');set('ru_code',PRESET[ix].lev[0]);set('ru_name',PRESET[ix].lev[1]);}
+ updRuleForm();}
 function tradeSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:code,price:0,rate:0};const p=held(code);const C=S.trade_cfg;
  openSheet(`<h3>💰 ${esc(r.name)} <span class="mu">${code}</span> <span class="badge ${S.trade.mock?'live':'off'}">${S.trade.mock?'모의':'실전'}</span></h3>
  <div class="mu">현재가 <b style="color:var(--tx)">${r.price?f(r.price)+'원':'-'}</b> <span class="${cls(r.rate)}">${r.price?sg(r.rate):''}</span> · <a href="#" data-act="chart" data-code="${code}" style="color:#6ea8ff">📈 차트</a></div>
@@ -322,7 +359,9 @@ function ixSheet(code){const i=S.indices.find(x=>x.code===code);const o=S.index_
  <div><label>🎯 지수 이상 도달</label><input id="k_price_up" inputmode="decimal" placeholder="없음" value="${v(o.price_up)}"></div>
  <div><label>⛔ 지수 이하 도달</label><input id="k_price_dn" inputmode="decimal" placeholder="없음" value="${v(o.price_dn)}"></div></div>
  <div class="mu" style="margin-top:6px">현재 ${i.price?f(i.price,2)+' ('+sg(i.rate)+')':'-'}</div>
- <div class="row" style="margin-top:14px"><button data-act="saveIx" data-code="${code}">저장</button><button class="sec" data-act="close">닫기</button></div>`);}
+ <div class="row" style="margin-top:14px"><button data-act="saveIx" data-code="${code}">저장</button><button class="sec" data-act="close">닫기</button></div>
+ <h2 style="margin-top:16px">🏛 ${i.name} 연동 매매 규칙</h2>${ruleList(S.trade.rules.filter(r=>r.index===code))}
+ <div class="row" style="margin-top:8px"><button class="sec" data-act="ruleSheet" data-ix="${code}">＋ 매매 규칙 추가</button></div>`);}
 const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
 let _askRes=null;
 function ask(msg,okLabel){return new Promise(res=>{_askRes=res;openSheet(`<h3 style="margin-bottom:14px;line-height:1.5;white-space:pre-line">${esc(msg)}</h3><div class="row"><button class="red" data-act="askYes">${esc(okLabel||'확인')}</button><button class="sec" data-act="askNo">취소</button></div>`);});}
@@ -352,7 +391,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]
  case 'trSell':{const p=S.trade.positions.find(x=>x.code===code);if(await ask(`${p?p.name:code} ${p?f(p.qty)+'주를 ':''}시장가로 매도할까요?`,'매도'))act('/api/trade/sell',{code});break;}
  case 'trSellAll':if(await ask('보유 종목 전체를 시장가로 매도할까요?','전체 매도'))act('/api/trade/sellall');break;
  case 'trResume':act('/api/trade/resume');break;
- case 'tradeSheet':tradeSheet(code);break; case 'posSheet':posSheet(code);break;
+ case 'tradeSheet':tradeSheet(code);break;
+ case 'ruleSheet':ruleSheet(b.dataset.ix||'001');break; case 'preset':applyPreset(b.dataset.p);break;
+ case 'ruleAdd':{const r={};['index','cond','value','minutes','action','scope','pct','code','name','amount'].forEach(k=>r[k]=gv('ru_'+k));
+   const txt=$('#ru_action').selectedOptions[0].text;if(r.action!=='halt_buy'&&r.action!=='resume_buy'&&!await ask(`${r.index==='001'?'코스피':'코스닥'} ${$('#ru_cond').selectedOptions[0].text.replace('N',r.value).replace('X',r.value)} → ${txt}${r.action==='buy'?' ('+r.code+' '+r.amount+'원)':''}\n이 규칙을 추가할까요?`,'추가'))break;
+   const res=await act('/api/trade/ixrule',{op:'add',rule:r});if(res&&res.ok)closeSheet();break;}
+ case 'ruleOp':{const op=b.dataset.op;if(op==='del'&&!await ask('이 규칙을 삭제할까요?','삭제'))break;act('/api/trade/ixrule',{op,rule:{id:b.dataset.id}});if(op!=='toggle')closeSheet();break;} case 'posSheet':posSheet(code);break;
  case 'doBuy':{const qty=gv('b_qty'),amount=gv('b_amount'),type=$('#b_type').value,price=gv('b_price'),manage=$('#b_manage').checked;const r=S.watch.find(x=>x.code===code);
    const what=qty?qty+'주':f(+amount.replace(/,/g,''))+'원어치';if(!await ask(`${r?r.name:code} ${what}를 ${type==='market'?'시장가':f(+price.replace(/,/g,''))+'원 지정가'}로 매수할까요?`+(S.trade.mock?'':'\n⚠ 실전 계좌 주문입니다'),'매수'))break;
    act('/api/trade/buy',{code,qty,amount,order_type:type,price,manage});break;}

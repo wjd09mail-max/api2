@@ -51,6 +51,14 @@ public final class Trader {
     private boolean halted = false, closedToday = false, liquidated = false;
     private String haltReason = "", day = "";
     private final double[] ixRate = new double[2];
+    private final double[] ixPrice = new double[2];
+    private final java.util.ArrayDeque<double[]>[] ixHist = newHist();
+    private final Map<String, String> ruleFired = new LinkedHashMap<>();       // 규칙 id → 실행한 날짜
+
+    @SuppressWarnings("unchecked")
+    private static java.util.ArrayDeque<double[]>[] newHist() {
+        return new java.util.ArrayDeque[]{new java.util.ArrayDeque<double[]>(), new java.util.ArrayDeque<double[]>()};
+    }
     private volatile long lastBalance = 0, balanceDue = 0;
     private volatile String balanceErr = "";
     private volatile Map<String, Object> t = new LinkedHashMap<>();
@@ -475,10 +483,29 @@ public final class Trader {
     }
 
     // ───────── 지수 연동 ─────────
-    public void onIndex(String code, double rate) {
+    static String ixName(String code) {
+        return "001".equals(code) ? "코스피" : ("101".equals(code) ? "코스닥" : code);
+    }
+
+    /** 지수 실시간 (Engine 에서 호출) */
+    public void onIndex(String code, double price, double rate) {
         int i = "001".equals(code) ? 0 : ("101".equals(code) ? 1 : -1);
-        if (i < 0) return;
+        if (i < 0 || price <= 0) return;
         ixRate[i] = rate;
+        ixPrice[i] = price;
+        // 급등락 계산용 1초 버킷 (최대 60분)
+        long now = System.currentTimeMillis();
+        java.util.ArrayDeque<double[]> h = ixHist[i];
+        synchronized (h) {
+            double[] lb = h.peekLast();
+            if (lb == null || now - lb[0] >= 1000) h.addLast(new double[]{now, price, price});
+            else {
+                lb[1] = Math.min(lb[1], price);
+                lb[2] = Math.max(lb[2], price);
+            }
+            while (!h.isEmpty() && now - h.peekFirst()[0] > 3_600_000) h.pollFirst();
+        }
+        // 기본 안전장치: 지수 급락 시 자동매도 종목 전량 매도
         double isell = n("index_sell");
         if (isell > 0 && rate <= -isell) {
             boolean doIt;
@@ -487,12 +514,207 @@ public final class Trader {
                 liquidated = true;
             }
             if (doIt) {
-                String why = String.format(Locale.KOREA, "%s %+.2f%% 급락", i == 0 ? "코스피" : "코스닥", rate);
+                String why = String.format(Locale.KOREA, "%s %+.2f%% 급락", ixName(code), rate);
                 Logx.add("지수 급락 – 자동매도 종목 전량 매도: " + why, "warn");
                 sellAll("지수 급락 전량매도 (" + why + ")", false);
                 halt(why);
             }
         }
+        checkRules(code, i, price, rate);
+    }
+
+    /** 최근 minutes 분 동안 [저점 대비 상승%, 고점 대비 하락%] */
+    private double[] ixMove(int i, double price, double minutes) {
+        long now = System.currentTimeMillis();
+        double lo = Double.MAX_VALUE, hi = 0;
+        java.util.ArrayDeque<double[]> h = ixHist[i];
+        synchronized (h) {
+            for (double[] b : h) {
+                if (now - b[0] > minutes * 60_000) continue;
+                lo = Math.min(lo, b[1]);
+                hi = Math.max(hi, b[2]);
+            }
+        }
+        if (hi <= 0) return new double[]{0, 0};
+        return new double[]{(price / lo - 1) * 100, (price / hi - 1) * 100};
+    }
+
+    static String condText(Map<String, Object> r) {
+        String c = Json.s(r.get("cond"));
+        double v = Json.d(r.get("value"), 0);
+        String vs = Engine.g(v);
+        switch (c) {
+            case "rate_le": return "등락률 −" + vs.replace("-", "") + "% 이하";
+            case "rate_ge": return "등락률 +" + vs + "% 이상";
+            case "price_le": return "지수 " + vs + " 이하";
+            case "price_ge": return "지수 " + vs + " 이상";
+            case "surge_up": return Engine.g(Json.d(r.get("minutes"), 5)) + "분 내 +" + vs + "% 급등";
+            case "surge_dn": return Engine.g(Json.d(r.get("minutes"), 5)) + "분 내 −" + vs + "% 급락";
+            default: return c;
+        }
+    }
+
+    static String actText(Map<String, Object> r) {
+        String a = Json.s(r.get("action"));
+        String scope = "all".equals(Json.s(r.get("scope"))) ? "보유 전체" : "자동매도 종목";
+        switch (a) {
+            case "sell_all": return scope + " 전량 매도";
+            case "sell_pct": return scope + " " + Engine.g(Json.d(r.get("pct"), 50)) + "% 매도";
+            case "buy": return Json.s(r.get("name")).isEmpty() ? Json.s(r.get("code")) + " " + Engine.won(Json.d(r.get("amount"), 0)) + "원 매수"
+                    : Json.s(r.get("name")) + "(" + Json.s(r.get("code")) + ") " + Engine.won(Json.d(r.get("amount"), 0)) + "원 매수";
+            case "halt_buy": return "조건식 자동매수 중지";
+            case "resume_buy": return "조건식 자동매수 재개";
+            default: return a;
+        }
+    }
+
+    private static final boolean ANYTIME = System.getenv("STOCK_ALERT_ANYTIME") != null;   // 테스트 전용
+
+    private void checkRules(String code, int i, double price, double rate) {
+        if (!ANYTIME) {
+            if (!weekday()) return;
+            String now = hhmm();
+            if (now.compareTo("09:00") < 0 || now.compareTo("15:20") > 0) return;
+        }
+        List<Object> rules = Json.arr(t.get("index_rules"));
+        String d = today();
+        for (Object o : rules) {
+            Map<String, Object> r = Json.obj(o);
+            if (!Json.b(r.get("enabled")) || !code.equals(Json.s(r.get("index")))) continue;
+            String id = Json.s(r.get("id"));
+            synchronized (lock) {
+                if (d.equals(ruleFired.get(id))) continue;           // 하루 1회
+            }
+            String c = Json.s(r.get("cond"));
+            double v = Json.d(r.get("value"), 0);
+            boolean hit;
+            switch (c) {
+                case "rate_le": hit = rate <= -Math.abs(v); break;
+                case "rate_ge": hit = rate >= Math.abs(v); break;
+                case "price_le": hit = v > 0 && price <= v; break;
+                case "price_ge": hit = v > 0 && price >= v; break;
+                case "surge_up": hit = v > 0 && ixMove(i, price, Json.d(r.get("minutes"), 5))[0] >= v; break;
+                case "surge_dn": hit = v > 0 && ixMove(i, price, Json.d(r.get("minutes"), 5))[1] <= -v; break;
+                default: hit = false;
+            }
+            if (!hit) continue;
+            synchronized (lock) {
+                ruleFired.put(id, d);
+            }
+            save();
+            runRule(r, String.format(Locale.KOREA, "%s %s (현재 %,.2f, %+.2f%%)", ixName(code), condText(r), price, rate));
+        }
+    }
+
+    private void runRule(Map<String, Object> r, String why) {
+        String a = Json.s(r.get("action"));
+        String reason = "지수 규칙: " + why;
+        String result;
+        String ob = orderBlock();
+        boolean all = "all".equals(Json.s(r.get("scope")));
+        switch (a) {
+            case "sell_all": {
+                result = ob != null ? "주문 불가: " + ob : (String) sellAll(reason, all)[1];
+                break;
+            }
+            case "sell_pct": {
+                if (ob != null) {
+                    result = "주문 불가: " + ob;
+                    break;
+                }
+                double pct = Math.max(1, Math.min(100, Json.d(r.get("pct"), 50)));
+                List<String[]> jobs = new ArrayList<>();
+                synchronized (lock) {
+                    for (Pos p : pos.values()) {
+                        if (p.qty <= 0 || (!all && !autoOn(p))) continue;
+                        int q = Math.max(1, (int) Math.floor(p.qty * pct / 100.0));
+                        jobs.add(new String[]{p.code, String.valueOf(Math.min(q, p.qty))});
+                    }
+                }
+                int n = 0;
+                for (String[] j : jobs) if ((Boolean) sell(j[0], Integer.parseInt(j[1]), reason, true)[0]) n++;
+                result = jobs.isEmpty() ? "매도할 보유 종목이 없습니다" : n + "종목 " + Engine.g(pct) + "% 매도 주문";
+                break;
+            }
+            case "buy": {
+                final String code = Engine.cleanCode(r.get("code"));
+                final double amt = Json.d(r.get("amount"), 0);
+                if (ob != null) result = "주문 불가: " + ob;
+                else if (halted) result = "자동매수 정지 상태라 매수 안 함 (" + haltReason + ")";
+                else {
+                    final String nm = Json.s(r.get("name")).isEmpty() ? eng.nameOf(code) : Json.s(r.get("name"));
+                    q.offer(() -> placeBuy(code, nm, 0, amt, 0, true, 0, true, reason, false));
+                    result = label(code, nm) + " " + Engine.won(amt) + "원 매수 주문";
+                }
+                break;
+            }
+            case "halt_buy":
+                halt(why);
+                result = "조건식 자동매수 중지";
+                break;
+            case "resume_buy":
+                resume();
+                result = "조건식 자동매수 재개";
+                break;
+            default:
+                result = "알 수 없는 동작";
+        }
+        Logx.add("지수 규칙 실행 – " + why + " → " + actText(r) + " : " + result, "warn");
+        kakao.push("🏛 지수 연동 매매\n" + why + "\n→ " + actText(r) + "\n" + result);
+    }
+
+    /** 규칙 추가/삭제/켜기 (AppCore 에서 호출) */
+    public Object[] editRule(String op, Map<String, Object> in) {
+        synchronized (cfg.lock) {
+            Map<String, Object> tr = cfg.sec("trade");
+            List<Object> rules = new ArrayList<>(Json.arr(tr.get("index_rules")));
+            String id = Json.s(in.get("id"));
+            if ("del".equals(op) || "toggle".equals(op) || "rearm".equals(op)) {
+                Map<String, Object> found = null;
+                for (Object o : rules) if (id.equals(Json.s(Json.obj(o).get("id")))) found = Json.obj(o);
+                if (found == null) return new Object[]{false, "규칙을 찾을 수 없습니다"};
+                if ("del".equals(op)) rules.remove(found);
+                else if ("toggle".equals(op)) found.put("enabled", !Json.b(found.get("enabled")));
+                else synchronized (lock) {
+                    ruleFired.remove(id);
+                }
+            } else {
+                String ix = Json.s(in.get("index"));
+                String c = Json.s(in.get("cond")), a = Json.s(in.get("action"));
+                if (!"001".equals(ix) && !"101".equals(ix)) return new Object[]{false, "지수를 선택하세요"};
+                if (!java.util.Arrays.asList("rate_le", "rate_ge", "price_le", "price_ge", "surge_up", "surge_dn").contains(c))
+                    return new Object[]{false, "조건을 선택하세요"};
+                if (!java.util.Arrays.asList("sell_all", "sell_pct", "buy", "halt_buy", "resume_buy").contains(a))
+                    return new Object[]{false, "동작을 선택하세요"};
+                double v = Math.abs(Json.d(Json.s(in.get("value")).replace(",", ""), -1));
+                if (Json.s(in.get("value")).trim().isEmpty() || v <= 0) return new Object[]{false, "조건 값을 입력하세요"};
+                Map<String, Object> r = Json.map("id", "r" + System.currentTimeMillis(), "enabled", true, "index", ix,
+                        "cond", c, "value", v, "minutes", Math.max(1, Json.d(in.get("minutes"), 5)),
+                        "action", a, "scope", "all".equals(Json.s(in.get("scope"))) ? "all" : "auto",
+                        "pct", Math.max(1, Math.min(100, Json.d(in.get("pct"), 50))));
+                if ("buy".equals(a)) {
+                    String code = Engine.cleanCode(in.get("code"));
+                    double amt = Json.d(Json.s(in.get("amount")).replace(",", ""), 0);
+                    if (!code.matches("[0-9A-Z]{6}")) return new Object[]{false, "매수할 종목코드 6자리를 입력하세요"};
+                    if (amt <= 0) return new Object[]{false, "매수 금액을 입력하세요"};
+                    r.put("code", code);
+                    r.put("amount", amt);
+                    r.put("name", Json.s(in.get("name")).trim());
+                }
+                if (rules.size() >= 20) return new Object[]{false, "규칙은 최대 20개까지"};
+                rules.add(r);
+                id = Json.s(r.get("id"));
+                tr.put("index_rules", rules);
+                cfg.save();
+                reload();
+                return new Object[]{true, ixName(ix) + " 규칙 추가: " + condText(r) + " → " + actText(r)};
+            }
+            tr.put("index_rules", rules);
+            cfg.save();
+        }
+        reload();
+        save();
+        return new Object[]{true, "del".equals(op) ? "규칙 삭제" : ("toggle".equals(op) ? "규칙 켜기/끄기 변경" : "오늘 다시 실행 가능")};
     }
 
     // ───────── 타이머: 잔고 동기화, 장마감 정리 ─────────
@@ -614,7 +836,8 @@ public final class Trader {
             st = Json.map("day", day, "owned", new ArrayList<Object>(owned), "pos_cfg", new LinkedHashMap<String, Object>(posCfg),
                     "bought_today", new ArrayList<Object>(boughtToday),
                     "buys_today", (double) buysToday, "realized", realized, "halted", halted, "halt_reason", haltReason,
-                    "closed_today", closedToday, "liquidated", liquidated, "orders", new ArrayList<Object>(orders));
+                    "closed_today", closedToday, "liquidated", liquidated, "orders", new ArrayList<Object>(orders),
+                    "rule_fired", new LinkedHashMap<String, Object>(ruleFired));
             st = Json.obj(Json.copy(st));
         }
         try {
@@ -639,6 +862,7 @@ public final class Trader {
             synchronized (lock) {
                 for (Object o : Json.arr(st.get("owned"))) owned.add(Json.s(o));
                 for (Map.Entry<String, Object> e : Json.obj(st.get("pos_cfg")).entrySet()) posCfg.put(e.getKey(), Json.obj(e.getValue()));
+                for (Map.Entry<String, Object> e : Json.obj(st.get("rule_fired")).entrySet()) ruleFired.put(e.getKey(), Json.s(e.getValue()));
                 if (day.equals(Json.s(st.get("day")))) {
                     for (Object o : Json.arr(st.get("bought_today"))) boughtToday.add(Json.s(o));
                     buysToday = (int) Json.d(st.get("buys_today"), 0);
@@ -679,8 +903,21 @@ public final class Trader {
                     "block", block == null ? "" : block, "halted", halted, "halt_reason", haltReason,
                     "buys_today", (double) buysToday, "max_buys", n("max_buys"), "realized", realized, "eval_pl", evalPl,
                     "positions", ps, "orders", new ArrayList<Object>(orders.subList(0, Math.min(60, orders.size()))),
-                    "balance_err", balanceErr);
+                    "balance_err", balanceErr, "rules", rulesView(), "ix", Json.map("001", Json.map("price", ixPrice[0], "rate", ixRate[0]),
+                            "101", Json.map("price", ixPrice[1], "rate", ixRate[1])));
         }
+    }
+
+    private List<Object> rulesView() {
+        List<Object> out = new ArrayList<>();
+        String d = today();
+        for (Object o : Json.arr(t.get("index_rules"))) {
+            Map<String, Object> r = Json.obj(o);
+            out.add(Json.map("id", Json.s(r.get("id")), "index", Json.s(r.get("index")), "name", ixName(Json.s(r.get("index"))),
+                    "enabled", Json.b(r.get("enabled")), "cond", condText(r), "action", actText(r),
+                    "fired", d.equals(ruleFired.get(Json.s(r.get("id"))))));
+        }
+        return out;
     }
 
     public String shortStatus() {

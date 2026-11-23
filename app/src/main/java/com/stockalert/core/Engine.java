@@ -362,6 +362,7 @@ public final class Engine {
         if (w != null) w.close();
         connected = false;
         status = "중지됨";
+        error = "";
         synchronized (lock) {
             active.clear();
             pendingReq.clear();
@@ -421,8 +422,10 @@ public final class Engine {
                 sleepWhileRunning(120_000);
                 continue;
             } catch (Exception e) {
-                error = String.valueOf(e.getMessage());
-                if (running) Logx.add("연결 오류: " + e.getMessage(), "error");
+                if (running) {                      // 사용자가 중지한 경우는 오류로 표시하지 않음
+                    error = String.valueOf(e.getMessage());
+                    Logx.add("연결 오류: " + e.getMessage(), "error");
+                }
             }
             connected = false;
             closeWs();
@@ -1192,7 +1195,7 @@ public final class Engine {
 
     private void onIndex(String code, double p, double r) {
         Trader tr = trader;
-        if (tr != null && p > 0) tr.onIndex(code, r);
+        if (tr != null && p > 0) tr.onIndex(code, p, r);
         List<String> out = new ArrayList<>();
         synchronized (lock) {
             Ix ix = indices.get(code);
