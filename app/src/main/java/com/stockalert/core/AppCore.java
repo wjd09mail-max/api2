@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "2.2.0";
+    public static final String VERSION = "2.2.1";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
