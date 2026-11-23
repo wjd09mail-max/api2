@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "2.0.0";
+    public static final String VERSION = "2.1.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
@@ -38,7 +38,7 @@ public final class AppCore {
         this.cfg = new Store(configFile);
         this.notifier = notifier;
         this.kakao = new Kakao(cfg, notifier);
-        this.engine = new Engine(cfg, kakao);
+        this.engine = new Engine(cfg, kakao, new File(configFile.getAbsoluteFile().getParentFile(), "watch.json"));
         this.page = pageHtml;
         byte[] b = new byte[18];
         new SecureRandom().nextBytes(b);
@@ -328,6 +328,59 @@ public final class AppCore {
                 Object[] r = engine.applySlots();
                 return new Object[]{true, "조건식 저장됨. " + r[1]};
             }
+            case "/api/search":
+                return engine.searchOnce(Json.s(b.get("seq")));
+            case "/api/watch/remove":
+                return engine.removeWatch(Json.s(b.get("code")), Json.s(b.get("group")));
+            case "/api/watch/clear":
+                return engine.clearGroup(Json.s(b.get("group")));
+            case "/api/watch/add": {
+                String code = Engine.cleanCode(b.get("code"));
+                if (code.isEmpty()) return new Object[]{false, "종목코드가 없습니다"};
+                synchronized (cfg.lock) {
+                    String wl = Json.s(cfg.data.get("watchlist")).trim();
+                    if (!("," + wl.replace(" ", "") + ",").contains("," + code + ","))
+                        cfg.data.put("watchlist", wl.isEmpty() ? code : wl + ", " + code);
+                    cfg.save();
+                }
+                engine.applyWatchlist();
+                return new Object[]{true, engine.nameOf(code) + " 관심종목에 추가"};
+            }
+            case "/api/stock_alert":
+            case "/api/index_alert": {
+                boolean isIx = path.equals("/api/index_alert");
+                String code = isIx ? Json.s(b.get("code")).trim() : Engine.cleanCode(b.get("code"));
+                if (code.isEmpty()) return new Object[]{false, "코드가 없습니다"};
+                String secName = isIx ? "index_alerts" : "stock_alerts";
+                synchronized (cfg.lock) {
+                    Map<String, Object> sec = cfg.sec(secName);
+                    if (Json.b(b.get("reset")) && !isIx) {
+                        sec.remove(code);
+                    } else {
+                        Map<String, Object> in = Json.obj(b.get("settings"));
+                        Map<String, Object> o = new LinkedHashMap<>();
+                        String[] keys = isIx ? new String[]{"step", "surge_pct", "surge_min", "price_up", "price_dn"}
+                                : new String[]{"day_step", "entry_step", "surge_pct", "surge_min", "price_up", "price_dn"};
+                        for (String k : keys) {
+                            Object v = in.get(k);
+                            String t = v == null ? "" : Json.s(v).replace(",", "").trim();
+                            if (t.isEmpty()) {
+                                if (isIx) o.put(k, 0.0);
+                                continue;
+                            }
+                            double d = Json.d(t, -1);
+                            if (d < 0) return new Object[]{false, "'" + k + "' 값이 올바르지 않습니다"};
+                            o.put(k, d);
+                        }
+                        if (isIx) o.put("enabled", !in.containsKey("enabled") || Json.b(in.get("enabled")));
+                        else o.put("mute", Json.b(in.get("mute")));
+                        sec.put(code, o);
+                    }
+                    cfg.save();
+                }
+                engine.resetStock(code);
+                return new Object[]{true, engine.nameOf(code) + " 알림 설정 저장됨"};
+            }
             case "/api/watchlist": {
                 synchronized (cfg.lock) {
                     cfg.data.put("watchlist", Json.s(b.get("text")));
@@ -415,6 +468,8 @@ public final class AppCore {
         }
         s.put("version", VERSION);
         s.put("alerts", cfg.copy("alerts"));
+        s.put("stock_alerts", cfg.copy("stock_alerts"));
+        s.put("index_alerts", cfg.copy("index_alerts"));
         s.put("logs", Logx.lines(150));
         s.put("alert_log", Logx.alerts(100));
         s.put("settings", Json.map("appkey", mask(Json.s(k.get("appkey"))), "secretkey", mask(Json.s(k.get("secretkey"))),

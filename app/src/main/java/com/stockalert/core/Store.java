@@ -54,6 +54,12 @@ public final class Store {
                         "index_step", 1.0, "cooldown_min", 5.0,
                         "keep_after_exit", true, "max_watch", 100.0, "quiet", false,
                         "phone_notify", true, "kakao_notify", true, "autostart", true),
+                // 종목별 개별 알림 설정 {종목코드: {mute, day_step, entry_step, surge_pct, surge_min, price_up, price_dn}}
+                "stock_alerts", new java.util.LinkedHashMap<String, Object>(),
+                // 지수별 알림 설정 (기본 켜짐)
+                "index_alerts", Json.map(
+                        "001", Json.map("enabled", true, "step", 1.0, "surge_pct", 0.5, "surge_min", 5.0, "price_up", 0.0, "price_dn", 0.0),
+                        "101", Json.map("enabled", true, "step", 1.0, "surge_pct", 0.7, "surge_min", 5.0, "price_up", 0.0, "price_dn", 0.0)),
                 "ui", Json.map("port", 8080.0, "password", ""));
     }
 
