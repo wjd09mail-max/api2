@@ -1280,6 +1280,13 @@ public final class Engine {
         }
     }
 
+    public double priceOf(String code) {
+        synchronized (lock) {
+            Watch w = watch.get(code);
+            return w == null ? 0 : w.price;
+        }
+    }
+
     public String nameOf(String code) {
         synchronized (lock) {
             Watch w = watch.get(code);

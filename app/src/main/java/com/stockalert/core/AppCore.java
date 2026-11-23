@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.0.0";
+    public static final String VERSION = "3.1.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
@@ -356,16 +356,32 @@ public final class AppCore {
                 trader.reload();
                 boolean on = cfg.bool("trade", "enabled");
                 if (b.containsKey("enabled") && b.size() == 1) {
-                    Store.Logx.add("자동매매 " + (on ? "켜짐" : "꺼짐"));
-                    kakao.push(on ? "🟢 자동매매 켜짐 " + (cfg.bool("kiwoom", "mock") ? "(모의투자)" : "(실전)") : "⚪ 자동매매 꺼짐");
-                    return new Object[]{true, "자동매매 " + (on ? "ON" : "OFF")};
+                    Store.Logx.add("조건식 자동매수 " + (on ? "켜짐" : "꺼짐"));
+                    kakao.push(on ? "🟢 조건식 자동매수 켜짐 " + (cfg.bool("kiwoom", "mock") ? "(모의투자)" : "(실전)") : "⚪ 조건식 자동매수 꺼짐");
+                    return new Object[]{true, "조건식 자동매수 " + (on ? "ON" : "OFF")};
                 }
                 return new Object[]{true, "매매 설정 저장됨"};
             }
-            case "/api/trade/sell":
-                return trader.sell(Engine.cleanCode(b.get("code")), "수동 매도", true);
+            case "/api/trade/sell": {
+                int qty = (int) Json.d(Json.s(b.get("qty")).replace(",", ""), 0);
+                if (qty < 0) return new Object[]{false, "수량이 올바르지 않습니다"};
+                return trader.sell(Engine.cleanCode(b.get("code")), qty, qty > 0 ? "수동 부분매도" : "수동 매도", true);
+            }
             case "/api/trade/sellall":
                 return trader.sellAll("수동 전체 매도", true);
+            case "/api/trade/buy": {
+                String code = Engine.cleanCode(b.get("code"));
+                if (code.isEmpty()) return new Object[]{false, "종목코드가 없습니다"};
+                double amount = Json.d(Json.s(b.get("amount")).replace(",", ""), 0);
+                int qty = (int) Json.d(Json.s(b.get("qty")).replace(",", ""), 0);
+                boolean market = !"limit".equals(Json.s(b.get("order_type")));
+                double price = Json.d(Json.s(b.get("price")).replace(",", ""), 0);
+                if (amount < 0 || qty < 0 || price < 0) return new Object[]{false, "입력값이 올바르지 않습니다"};
+                boolean manage = !b.containsKey("manage") || Json.b(b.get("manage"));
+                return trader.manualBuy(code, engine.nameOf(code), amount, qty, market, price, manage);
+            }
+            case "/api/trade/pos":
+                return trader.setPos(Engine.cleanCode(b.get("code")), Json.obj(b.get("settings")), Json.b(b.get("reset")));
             case "/api/trade/resume":
                 return trader.resume();
             case "/api/trade/refresh":

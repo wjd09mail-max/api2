@@ -20,11 +20,13 @@ import java.util.TimeZone;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * 자동매매: 조건식 편입 매수 → 익절/손절/트레일링 매도, 장마감 정리, 지수 연동, 안전장치.
- * 주문: POST /api/dostk/ordr  (kt10000 매수 / kt10001 매도),  잔고: POST /api/dostk/acnt (kt00018)
+ * 매매: 감시 종목 수동 매수/매도, 조건식 편입 자동매수, 종목별 자동매도(익절/손절/트레일링/목표가),
+ * 장마감 정리, 지수 연동, 안전장치.
+ * 주문: POST /api/dostk/ordr (kt10000 매수 / kt10001 매도), 잔고: POST /api/dostk/acnt (kt00018)
  */
 public final class Trader {
     static final TimeZone KST = TimeZone.getTimeZone("Asia/Seoul");
+    static final String[] POS_KEYS = {"take_profit", "stop_loss", "trail_pct", "tp_price", "sl_price"};
 
     static final class Pos {
         String code, name;
@@ -40,14 +42,15 @@ public final class Trader {
     private final File stateFile;
     private final Object lock = new Object();
     private final Map<String, Pos> pos = new LinkedHashMap<>();
-    private final Set<String> owned = new HashSet<>();          // 앱이 산 종목 (팔 때까지 유지)
+    private final Set<String> owned = new HashSet<>();                       // 앱으로 산 종목
+    private final Map<String, Map<String, Object>> posCfg = new LinkedHashMap<>();   // 종목별 매도 설정
     private final Set<String> boughtToday = new HashSet<>();
     private final List<Map<String, Object>> orders = new ArrayList<>();
     private int buysToday = 0;
     private double realized = 0;
     private boolean halted = false, closedToday = false, liquidated = false;
     private String haltReason = "", day = "";
-    private final double[] ixRate = new double[2];               // 코스피, 코스닥
+    private final double[] ixRate = new double[2];
     private volatile long lastBalance = 0, balanceDue = 0;
     private volatile String balanceErr = "";
     private volatile Map<String, Object> t = new LinkedHashMap<>();
@@ -68,7 +71,7 @@ public final class Trader {
                 } catch (InterruptedException e) {
                     return;
                 } catch (Exception e) {
-                    Logx.add("자동매매 처리 오류: " + e, "error");
+                    Logx.add("매매 처리 오류: " + e, "error");
                 }
             }
         }, "trader");
@@ -92,22 +95,22 @@ public final class Trader {
         return Json.b(t.get(k));
     }
 
-    static String today() {
-        SimpleDateFormat f = new SimpleDateFormat("yyyyMMdd", Locale.KOREA);
+    static String fmt(String p) {
+        SimpleDateFormat f = new SimpleDateFormat(p, Locale.KOREA);
         f.setTimeZone(KST);
         return f.format(new Date());
+    }
+
+    static String today() {
+        return fmt("yyyyMMdd");
     }
 
     static String hhmm() {
-        SimpleDateFormat f = new SimpleDateFormat("HH:mm", Locale.KOREA);
-        f.setTimeZone(KST);
-        return f.format(new Date());
+        return fmt("HH:mm");
     }
 
     static String hms() {
-        SimpleDateFormat f = new SimpleDateFormat("HH:mm:ss", Locale.KOREA);
-        f.setTimeZone(KST);
-        return f.format(new Date());
+        return fmt("HH:mm:ss");
     }
 
     static boolean weekday() {
@@ -119,33 +122,34 @@ public final class Trader {
         return cfg.bool("kiwoom", "mock");
     }
 
-    /** 주문 가능 여부 (null = 가능, 아니면 사유) */
+    /** 주문을 보낼 수 있는지 (null = 가능) */
     private String orderBlock() {
-        if (!b("enabled")) return "자동매매 꺼짐";
-        if (!eng.connected) return "키움 미연결";
-        if (!mock() && !b("real_ok")) return "실전 주문 미허용 (매매 설정에서 '실전 주문 허용' 필요)";
+        if (!eng.connected) return "키움 미연결 (▶시작 필요)";
+        if (!mock() && !b("real_ok")) return "실전 주문 미허용 (매매 탭 설정에서 '실전 주문 허용' 필요)";
         return null;
     }
 
     private void checkDay() {
         String d = today();
         if (!d.equals(day)) {
-            day = d;
-            boughtToday.clear();
-            buysToday = 0;
-            realized = 0;
-            halted = false;
-            haltReason = "";
-            closedToday = false;
-            liquidated = false;
-            orders.clear();
+            synchronized (lock) {
+                day = d;
+                boughtToday.clear();
+                buysToday = 0;
+                realized = 0;
+                halted = false;
+                haltReason = "";
+                closedToday = false;
+                liquidated = false;
+                orders.clear();
+            }
             save();
         }
     }
 
     private void record(String side, String code, String name, int qty, double price, boolean ok, String msg, String reason) {
-        Map<String, Object> o = Json.map("t", hms(), "side", side, "code", code, "name", name, "qty", (double) qty,
-                "price", price, "ok", ok, "msg", msg, "reason", reason);
+        Map<String, Object> o = Json.map("t", hms(), "side", side, "code", code, "name", name == null ? code : name,
+                "qty", (double) qty, "price", price, "ok", ok, "msg", msg, "reason", reason);
         synchronized (lock) {
             orders.add(0, o);
             while (orders.size() > 200) orders.remove(orders.size() - 1);
@@ -159,9 +163,28 @@ public final class Trader {
             halted = true;
             haltReason = why;
         }
-        Logx.add("자동매수 정지: " + why, "warn");
-        kakao.push("⛔ 자동매수 정지\n" + why + "\n(매도 감시는 계속)");
+        Logx.add("조건식 자동매수 정지: " + why, "warn");
+        kakao.push("⛔ 자동매수 정지\n" + why + "\n(종목별 자동매도는 계속)");
         save();
+    }
+
+    static String label(String code, String name) {
+        return (name == null || name.isEmpty() || name.equals(code)) ? code : name + "(" + code + ")";
+    }
+
+    /** 종목별 자동매도 사용 여부 (lock 보유 상태) */
+    private boolean autoOn(Pos p) {
+        Map<String, Object> c = posCfg.get(p.code);
+        if (c != null && c.containsKey("auto")) return Json.b(c.get("auto"));
+        return owned.contains(p.code) || !b("bot_only");
+    }
+
+    /** 종목별 적용 값 (개별 설정이 없으면 매매 탭 기본값) */
+    private double effv(String code, String key) {
+        Map<String, Object> c = posCfg.get(code);
+        if (c != null && c.get(key) != null && !Json.s(c.get(key)).isEmpty()) return Json.d(c.get(key), 0);
+        if ("tp_price".equals(key) || "sl_price".equals(key)) return 0;
+        return n(key);
     }
 
     // ───────── 매수 ─────────
@@ -175,13 +198,21 @@ public final class Trader {
         return false;
     }
 
-    /** 조건식 편입 신호 (Engine 에서 호출) */
+    /** 조건식 편입 신호 → 자동매수 (조건식 자동매수 ON 일 때만) */
     public void onSignal(final String code, final String cond, final double price, final String name) {
         if (!b("enabled") || !slotBuy(cond)) return;
-        q.offer(() -> doBuy(code, cond, price, name));
+        q.offer(() -> {
+            String why = autoBuyBlock(code);
+            if (why != null) {
+                Logx.add("자동매수 건너뜀 " + label(code, name) + ": " + why);
+                return;
+            }
+            placeBuy(code, name, price, n("buy_amount"), 0, !"limit".equals(Json.s(t.get("order_type"))), 0, true,
+                    "[" + cond + "] 편입", true);
+        });
     }
 
-    private String buyBlock(String code) {
+    private String autoBuyBlock(String code) {
         String ob = orderBlock();
         if (ob != null) return ob;
         checkDay();
@@ -199,73 +230,97 @@ public final class Trader {
             if (p != null && p.qty > 0) return "이미 보유 중";
             if (buysToday >= (int) n("max_buys")) return "하루 최대 매수 횟수(" + (int) n("max_buys") + "회) 도달";
             int held = 0;
-            for (Pos x : pos.values()) if (x.qty > 0 && x.bot) held++;
+            for (Pos x : pos.values()) if (x.qty > 0 && owned.contains(x.code)) held++;
             if (n("max_positions") > 0 && held >= (int) n("max_positions")) return "최대 보유 종목 수(" + (int) n("max_positions") + ") 도달";
         }
         return null;
     }
 
-    private void doBuy(String code, String cond, double price, String name) {
-        String why = buyBlock(code);
-        String label = (name == null || name.isEmpty() || name.equals(code)) ? code : name + "(" + code + ")";
-        if (why != null) {
-            Logx.add("매수 건너뜀 " + label + ": " + why, "info");
-            return;
-        }
+    /** 감시 탭에서 수동 매수 */
+    public Object[] manualBuy(final String code, final String name, final double amount, final int qty,
+                              final boolean market, final double limitPrice, final boolean manage) {
+        String ob = orderBlock();
+        if (ob != null) return new Object[]{false, ob};
+        if (amount <= 0 && qty <= 0) return new Object[]{false, "매수 금액 또는 수량을 입력하세요"};
+        if (!market && limitPrice <= 0) return new Object[]{false, "지정가 가격을 입력하세요"};
+        q.offer(() -> placeBuy(code, name, market ? 0 : limitPrice, amount, qty, market, limitPrice, manage, "수동 매수", false));
+        return new Object[]{true, "매수 주문 요청"};
+    }
+
+    private void placeBuy(String code, String name, double price, double amount, int qty, boolean market,
+                          double limitPrice, boolean manage, String reason, boolean auto) {
+        String lb = label(code, name);
         try {
             Engine.Rest rest = eng.rest();
-            if (price <= 0) price = (Double) rest.stockInfo(code)[1];
-            double amt = n("buy_amount");
-            int qty = price > 0 ? (int) Math.floor(amt / price) : 0;
+            if (rest == null) throw new Exception("키움 미연결");
+            double ref = !market && limitPrice > 0 ? limitPrice : price;
+            if (ref <= 0) {
+                double cached = eng.priceOf(code);
+                ref = cached > 0 ? cached : (Double) rest.stockInfo(code)[1];
+            }
+            if (qty <= 0) qty = ref > 0 ? (int) Math.floor(amount / ref) : 0;
             if (qty < 1) {
-                Logx.add("매수 건너뜀 " + label + ": 금액 " + Engine.won(amt) + "원으로 1주도 살 수 없음 (현재가 " + Engine.won(price) + ")", "warn");
+                String m = "금액 " + Engine.won(amount) + "원으로 1주도 살 수 없음 (현재가 " + Engine.won(ref) + ")";
+                Logx.add("매수 건너뜀 " + lb + ": " + m, "warn");
+                if (!auto) kakao.push("❌ 매수 불가\n" + lb + "\n" + m);
                 return;
             }
-            boolean market = !"limit".equals(Json.s(t.get("order_type")));
             Map<String, Object> body = Json.map("dmst_stex_tp", "KRX", "stk_cd", code, "ord_qty", String.valueOf(qty),
-                    "ord_uv", market ? "" : String.valueOf((long) price), "trde_tp", market ? "3" : "0");
+                    "ord_uv", market ? "" : String.valueOf((long) limitPrice), "trde_tp", market ? "3" : "0");
             Map<String, Object> r = rest.call("kt10000", "/api/dostk/ordr", body);
             boolean ok = "0".equals(Json.s(r.get("return_code")));
             String msg = Json.s(r.get("return_msg"));
-            record("매수", code, name, qty, price, ok, ok ? "주문번호 " + Json.s(r.get("ord_no")) : msg, "[" + cond + "] 편입");
+            record("매수", code, name, qty, ref, ok, ok ? "주문번호 " + Json.s(r.get("ord_no")) : msg, reason);
             if (!ok) {
-                Logx.add("매수 주문 실패 " + label + ": " + msg, "error");
-                kakao.push("❌ 매수 주문 실패\n" + label + "\n" + Engine.clip(msg, 80));
+                Logx.add("매수 주문 실패 " + lb + ": " + msg, "error");
+                kakao.push("❌ 매수 주문 실패\n" + lb + "\n" + Engine.clip(msg, 80));
                 return;
             }
             synchronized (lock) {
-                buysToday++;
-                boughtToday.add(code);
-                owned.add(code);
+                if (auto) {
+                    buysToday++;
+                    boughtToday.add(code);
+                }
+                if (manage) owned.add(code);
+                Map<String, Object> c = posCfg.get(code);
+                if (!manage) {
+                    if (c == null) posCfg.put(code, c = new LinkedHashMap<>());
+                    c.put("auto", false);
+                }
                 Pos p = pos.get(code);
-                if (p == null) {
+                if (p == null || p.qty <= 0) {
                     p = new Pos();
                     p.code = code;
                     pos.put(code, p);
+                    p.qty = qty;
+                    p.avail = qty;
+                    p.avg = ref;
+                    p.high = ref;
+                    p.buyAt = System.currentTimeMillis();
+                    p.placeholder = true;
+                } else {                                   // 추가 매수: 평단 대략 갱신 (잔고 조회 시 정확히 맞춰짐)
+                    p.avg = (p.avg * p.qty + ref * qty) / (p.qty + qty);
+                    p.qty += qty;
+                    p.avail += qty;
                 }
                 p.name = name;
-                p.qty = qty;
-                p.avail = qty;
-                p.avg = price;
-                p.last = price;
-                p.high = price;
-                p.buyAt = System.currentTimeMillis();
-                p.bot = true;
-                p.placeholder = true;
+                p.last = ref;
+                p.bot = owned.contains(code);
             }
             eng.watchHeld(code, name);
-            Logx.add("매수 주문 " + label + " " + qty + "주 " + (market ? "시장가" : Engine.won(price) + "원"));
-            kakao.push("💰 매수 주문 " + (mock() ? "(모의)" : "(실전)") + "\n" + label + " " + qty + "주 "
-                    + (market ? "시장가" : "@" + Engine.won(price)) + "\n≈" + Engine.won(qty * price) + "원 · [" + cond + "] 편입");
+            Logx.add("매수 주문 " + lb + " " + qty + "주 " + (market ? "시장가" : Engine.won(limitPrice) + "원") + " · " + reason);
+            kakao.push("💰 매수 주문 " + (mock() ? "(모의)" : "(실전)") + "\n" + lb + " " + qty + "주 "
+                    + (market ? "시장가" : "@" + Engine.won(limitPrice)) + "\n≈" + Engine.won(qty * ref) + "원 · " + reason);
             balanceDue = System.currentTimeMillis() + 3000;
             save();
         } catch (Exception e) {
-            Logx.add("매수 처리 오류 " + label + ": " + e.getMessage(), "error");
+            Logx.add("매수 처리 오류 " + lb + ": " + e.getMessage(), "error");
+            if (!auto) kakao.push("❌ 매수 오류\n" + lb + "\n" + Engine.clip(String.valueOf(e.getMessage()), 80));
         }
     }
 
     // ───────── 매도 ─────────
-    /** 실시간 체결가 (Engine 에서 호출) */
+    /** 실시간 체결가 → 종목별 자동매도 판단 */
     public void onTick(String code, double p) {
         String reason = null;
         synchronized (lock) {
@@ -273,44 +328,47 @@ public final class Trader {
             if (ps == null || ps.qty <= 0) return;
             ps.last = p;
             if (p > ps.high) ps.high = p;
-            if (!ps.bot || ps.sellPending || ps.avg <= 0 || !b("enabled")) return;
+            if (ps.sellPending || ps.avg <= 0 || !autoOn(ps)) return;
             double pnl = (p / ps.avg - 1) * 100;
-            double tp = n("take_profit"), sl = n("stop_loss"), tr = n("trail_pct");
-            if (tp > 0 && pnl >= tp) reason = String.format(Locale.KOREA, "익절 %+.2f%%", pnl);
+            double tp = effv(code, "take_profit"), sl = effv(code, "stop_loss"), tr = effv(code, "trail_pct");
+            double tpp = effv(code, "tp_price"), slp = effv(code, "sl_price");
+            if (tpp > 0 && p >= tpp) reason = "익절가 " + Engine.won(tpp) + " 도달 " + String.format(Locale.KOREA, "%+.2f%%", pnl);
+            else if (slp > 0 && p <= slp) reason = "손절가 " + Engine.won(slp) + " 도달 " + String.format(Locale.KOREA, "%+.2f%%", pnl);
+            else if (tp > 0 && pnl >= tp) reason = String.format(Locale.KOREA, "익절 %+.2f%%", pnl);
             else if (sl > 0 && pnl <= -sl) reason = String.format(Locale.KOREA, "손절 %+.2f%%", pnl);
             else if (tr > 0 && ps.high > ps.avg && pnl > 0 && (p / ps.high - 1) * 100 <= -tr)
                 reason = String.format(Locale.KOREA, "트레일링(고점 %s 대비 -%.1f%%) %+.2f%%", Engine.won(ps.high), tr, pnl);
         }
-        if (reason != null) sell(code, reason, false);
+        if (reason != null) sell(code, 0, reason, false);
     }
 
-    /** 매도 요청. manual=true 면 앱이 안 산 종목도 매도 */
-    public Object[] sell(final String code, final String reason, final boolean manual) {
-        // 수동 매도는 자동매매가 꺼져 있어도 가능
-        if (!eng.connected) return new Object[]{false, "키움 미연결"};
-        if (!mock() && !b("real_ok")) return new Object[]{false, "실전 주문 미허용 (매매 설정에서 '실전 주문 허용' 필요)"};
-        if (!manual && !b("enabled")) return new Object[]{false, "자동매매 꺼짐"};
+    /** 매도 요청. qty=0 이면 전량. manual=false 는 자동매도(종목 자동매도 ON 필요) */
+    public Object[] sell(final String code, final int qty, final String reason, final boolean manual) {
+        String ob = orderBlock();
+        if (ob != null) return new Object[]{false, ob};
         synchronized (lock) {
             Pos p = pos.get(code);
             if (p == null || p.qty <= 0) return new Object[]{false, "보유하지 않은 종목입니다"};
-            if (!manual && !p.bot) return new Object[]{false, "앱이 산 종목이 아님"};
+            if (!manual && !autoOn(p)) return new Object[]{false, "자동매도 꺼진 종목"};
             if (p.sellPending && System.currentTimeMillis() - p.sellAt < 30_000) return new Object[]{false, "매도 주문 처리 중"};
+            if (qty > Math.max(p.avail, p.qty)) return new Object[]{false, "매도 가능 수량(" + Math.max(p.avail, p.qty) + "주) 초과"};
             p.sellPending = true;
             p.sellAt = System.currentTimeMillis();
         }
-        q.offer(() -> doSell(code, reason));
+        q.offer(() -> doSell(code, qty, reason));
         return new Object[]{true, "매도 주문 요청"};
     }
 
-    private void doSell(String code, String reason) {
+    private void doSell(String code, int want, String reason) {
         Pos p;
         int qty;
-        String label;
+        String lb;
         synchronized (lock) {
             p = pos.get(code);
             if (p == null) return;
-            qty = p.avail > 0 ? p.avail : p.qty;
-            label = (p.name == null || p.name.isEmpty()) ? code : p.name + "(" + code + ")";
+            int all = p.avail > 0 ? p.avail : p.qty;
+            qty = want > 0 ? Math.min(want, all) : all;
+            lb = label(code, p.name);
         }
         try {
             Map<String, Object> body = Json.map("dmst_stex_tp", "KRX", "stk_cd", code, "ord_qty", String.valueOf(qty),
@@ -322,25 +380,30 @@ public final class Trader {
             boolean bot;
             synchronized (lock) {
                 est = (p.last - p.avg) * qty;
-                bot = p.bot;
+                bot = owned.contains(code);
             }
             record("매도", code, p.name, qty, p.last, ok, ok ? "주문번호 " + Json.s(r.get("ord_no")) : msg, reason);
             if (!ok) {
                 synchronized (lock) {
                     p.sellPending = false;
-                    p.sellAt = System.currentTimeMillis() + 30_000;     // 30초 후 재시도 허용
+                    p.sellAt = System.currentTimeMillis() + 30_000;
                 }
-                Logx.add("매도 주문 실패 " + label + ": " + msg, "error");
-                kakao.push("❌ 매도 주문 실패\n" + label + " " + qty + "주\n" + Engine.clip(msg, 80));
+                Logx.add("매도 주문 실패 " + lb + ": " + msg, "error");
+                kakao.push("❌ 매도 주문 실패\n" + lb + " " + qty + "주\n" + Engine.clip(msg, 80));
                 return;
             }
             double total;
             synchronized (lock) {
-                if (bot) realized += est;          // 직접 산 종목은 자동매매 손익/손실한도에 넣지 않음
+                if (bot) realized += est;
                 total = realized;
+                if (qty < p.qty) {                       // 부분 매도: 나머지는 계속 관리
+                    p.qty -= qty;
+                    p.avail = Math.max(0, p.avail - qty);
+                    p.sellPending = false;
+                }
             }
-            Logx.add("매도 주문 " + label + " " + qty + "주 시장가 · " + reason);
-            kakao.push("💸 매도 주문 " + (mock() ? "(모의)" : "(실전)") + "\n" + label + " " + qty + "주 시장가\n"
+            Logx.add("매도 주문 " + lb + " " + qty + "주 시장가 · " + reason);
+            kakao.push("💸 매도 주문 " + (mock() ? "(모의)" : "(실전)") + "\n" + lb + " " + qty + "주 시장가\n"
                     + reason + " · 예상손익 " + (est >= 0 ? "+" : "") + Engine.won(est) + "원");
             double ml = n("max_loss");
             if (ml > 0 && total <= -ml) halt("일일 손실 한도 도달 (예상 실현손익 " + Engine.won(total) + "원)");
@@ -350,24 +413,65 @@ public final class Trader {
             synchronized (lock) {
                 p.sellPending = false;
             }
-            Logx.add("매도 처리 오류 " + label + ": " + e.getMessage(), "error");
+            Logx.add("매도 처리 오류 " + lb + ": " + e.getMessage(), "error");
         }
     }
 
+    /** manual=true: 보유 전체 / false: 자동매도 켜진 종목만 */
     public Object[] sellAll(String reason, boolean manual) {
         List<String> codes = new ArrayList<>();
-        boolean botOnly = !manual && b("bot_only");
         synchronized (lock) {
-            for (Pos p : pos.values()) if (p.qty > 0 && (!botOnly || p.bot)) codes.add(p.code);
+            for (Pos p : pos.values()) if (p.qty > 0 && (manual || autoOn(p))) codes.add(p.code);
         }
         int n = 0;
         String last = "";
         for (String c : codes) {
-            Object[] r = sell(c, reason, manual);
+            Object[] r = sell(c, 0, reason, manual);
             if ((Boolean) r[0]) n++;
             else last = (String) r[1];
         }
-        return new Object[]{n > 0 || codes.isEmpty(), codes.isEmpty() ? "보유 종목이 없습니다" : n + "종목 매도 주문" + (last.isEmpty() ? "" : " (일부 실패: " + last + ")")};
+        return new Object[]{n > 0 || codes.isEmpty(), codes.isEmpty() ? "매도할 보유 종목이 없습니다"
+                : n + "종목 매도 주문" + (last.isEmpty() ? "" : " (일부 실패: " + last + ")")};
+    }
+
+    // ───────── 종목별 매도 설정 ─────────
+    public Object[] setPos(String code, Map<String, Object> in, boolean reset) {
+        synchronized (lock) {
+            if (reset) {
+                posCfg.remove(code);
+            } else {
+                Map<String, Object> c = new LinkedHashMap<>();
+                for (String k : POS_KEYS) {
+                    String v = in.get(k) == null ? "" : Json.s(in.get(k)).replace(",", "").trim();
+                    if (v.isEmpty()) continue;
+                    double d = Json.d(v, -1);
+                    if (d < 0) return new Object[]{false, "'" + k + "' 값이 올바르지 않습니다"};
+                    c.put(k, d);
+                }
+                if (in.containsKey("auto")) c.put("auto", Json.b(in.get("auto")));
+                Pos cur = pos.get(code);
+                if (cur != null && cur.avg > 0) {
+                    double tpp = Json.d(c.get("tp_price"), 0), slp = Json.d(c.get("sl_price"), 0);
+                    if (tpp > 0 && tpp <= cur.avg)
+                        return new Object[]{false, "익절가(" + Engine.won(tpp) + ")가 평단(" + Engine.won(cur.avg) + ") 이하입니다. 손실 정리는 손절가를 쓰세요"};
+                    if (slp > 0 && cur.last > 0 && slp >= cur.last)
+                        return new Object[]{false, "손절가(" + Engine.won(slp) + ")가 현재가(" + Engine.won(cur.last) + ") 이상이라 즉시 매도됩니다"};
+                }
+                posCfg.put(code, c);
+            }
+            Pos p = pos.get(code);
+            if (p != null) p.high = Math.max(p.last, p.avg);     // 트레일링 기준 재설정
+        }
+        save();
+        return new Object[]{true, label(code, nameOf(code)) + " 매도 설정 저장됨"};
+    }
+
+    private String nameOf(String code) {
+        synchronized (lock) {
+            Pos p = pos.get(code);
+            if (p != null && p.name != null) return p.name;
+        }
+        return eng.nameOf(code);
     }
 
     // ───────── 지수 연동 ─────────
@@ -376,16 +480,15 @@ public final class Trader {
         if (i < 0) return;
         ixRate[i] = rate;
         double isell = n("index_sell");
-        if (isell > 0 && rate <= -isell && b("enabled")) {
+        if (isell > 0 && rate <= -isell) {
             boolean doIt;
             synchronized (lock) {
                 doIt = !liquidated;
                 liquidated = true;
             }
             if (doIt) {
-                String nm = i == 0 ? "코스피" : "코스닥";
-                String why = String.format(Locale.KOREA, "%s %+.2f%% 급락", nm, rate);
-                Logx.add("지수 급락 – 전량 매도: " + why, "warn");
+                String why = String.format(Locale.KOREA, "%s %+.2f%% 급락", i == 0 ? "코스피" : "코스닥", rate);
+                Logx.add("지수 급락 – 자동매도 종목 전량 매도: " + why, "warn");
                 sellAll("지수 급락 전량매도 (" + why + ")", false);
                 halt(why);
             }
@@ -404,29 +507,31 @@ public final class Trader {
                 synchronized (lock) {
                     active = b("enabled") || !pos.isEmpty();
                 }
-                if (active && (now - lastBalance > 20_000 || (balanceDue > 0 && now >= balanceDue))) {
+                if (now - lastBalance > (active ? 20_000 : 60_000) || (balanceDue > 0 && now >= balanceDue)) {
                     balanceDue = 0;
                     lastBalance = now;
                     q.offer(this::refreshBalance);
                 }
                 String ct = Json.s(t.get("close_time"));
-                if (b("enabled") && weekday() && !ct.isEmpty() && hhmm().compareTo(ct) >= 0 && hhmm().compareTo("15:30") < 0) {
+                if (weekday() && !ct.isEmpty() && hhmm().compareTo(ct) >= 0 && hhmm().compareTo("15:30") < 0) {
                     boolean doIt;
                     synchronized (lock) {
                         doIt = !closedToday;
                         closedToday = true;
                     }
                     if (doIt) {
-                        Logx.add("장마감 정리 시각(" + ct + ") – 보유 종목 매도");
                         Object[] r = sellAll("장마감 정리 (" + ct + ")", false);
-                        if (!"보유 종목이 없습니다".equals(r[1])) kakao.push("🕒 장마감 정리\n" + r[1]);
+                        if (!"매도할 보유 종목이 없습니다".equals(r[1])) {
+                            Logx.add("장마감 정리(" + ct + "): " + r[1]);
+                            kakao.push("🕒 장마감 정리\n" + r[1]);
+                        }
                         save();
                     }
                 }
             } catch (InterruptedException e) {
                 return;
             } catch (Exception e) {
-                Logx.add("자동매매 타이머 오류: " + e.getMessage(), "warn");
+                Logx.add("매매 타이머 오류: " + e.getMessage(), "warn");
             }
         }
     }
@@ -470,16 +575,17 @@ public final class Trader {
                     double cur = Math.abs(Json.d(m.get("cur_prc"), 0));
                     if (cur > 0) p.last = cur;
                     if (p.high < p.last) p.high = p.last;
-                    p.bot = owned.contains(code) || !b("bot_only");
+                    p.bot = owned.contains(code);
                     p.placeholder = false;
                     if (p.sellPending && System.currentTimeMillis() - p.sellAt > 60_000) p.sellPending = false;
                 }
                 long now = System.currentTimeMillis();
                 for (Pos p : new ArrayList<>(pos.values())) {
                     if (seen.contains(p.code)) continue;
-                    if (p.placeholder && !p.sellPending && now - p.buyAt < 90_000) continue;     // 방금 낸 매수: 체결 대기
+                    if (p.placeholder && !p.sellPending && now - p.buyAt < 90_000) continue;   // 매수 체결 대기
                     pos.remove(p.code);
-                    owned.remove(p.code);                                       // 다 팔림
+                    owned.remove(p.code);
+                    posCfg.remove(p.code);                                                  // 다 팔리면 설정도 정리
                 }
             }
             for (String[] h : newHeld) eng.watchHeld(h[0], h[1]);
@@ -505,9 +611,11 @@ public final class Trader {
         if (stateFile == null) return;
         Map<String, Object> st;
         synchronized (lock) {
-            st = Json.map("day", day, "owned", new ArrayList<Object>(owned), "bought_today", new ArrayList<Object>(boughtToday),
+            st = Json.map("day", day, "owned", new ArrayList<Object>(owned), "pos_cfg", new LinkedHashMap<String, Object>(posCfg),
+                    "bought_today", new ArrayList<Object>(boughtToday),
                     "buys_today", (double) buysToday, "realized", realized, "halted", halted, "halt_reason", haltReason,
                     "closed_today", closedToday, "liquidated", liquidated, "orders", new ArrayList<Object>(orders));
+            st = Json.obj(Json.copy(st));
         }
         try {
             File tmp = new File(stateFile.getPath() + ".tmp");
@@ -530,6 +638,7 @@ public final class Trader {
             Map<String, Object> st = Json.obj(Json.parse(Net.readAll(new FileInputStream(stateFile))));
             synchronized (lock) {
                 for (Object o : Json.arr(st.get("owned"))) owned.add(Json.s(o));
+                for (Map.Entry<String, Object> e : Json.obj(st.get("pos_cfg")).entrySet()) posCfg.put(e.getKey(), Json.obj(e.getValue()));
                 if (day.equals(Json.s(st.get("day")))) {
                     for (Object o : Json.arr(st.get("bought_today"))) boughtToday.add(Json.s(o));
                     buysToday = (int) Json.d(st.get("buys_today"), 0);
@@ -554,8 +663,15 @@ public final class Trader {
                 if (p.qty <= 0) continue;
                 double pnl = p.avg > 0 && p.last > 0 ? (p.last / p.avg - 1) * 100 : 0;
                 evalPl += (p.last - p.avg) * p.qty;
+                Map<String, Object> c = posCfg.get(p.code);
+                boolean custom = false;
+                if (c != null) for (String k : POS_KEYS) if (c.containsKey(k)) custom = true;
                 ps.add(Json.map("code", p.code, "name", p.name == null ? p.code : p.name, "qty", (double) p.qty,
-                        "avail", (double) p.avail, "avg", p.avg, "last", p.last, "pnl", pnl, "bot", p.bot,
+                        "avail", (double) p.avail, "avg", p.avg, "last", p.last, "high", p.high, "pnl", pnl,
+                        "bot", owned.contains(p.code), "auto", autoOn(p), "custom", custom,
+                        "cfg", c == null ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(c),
+                        "eff", Json.map("take_profit", effv(p.code, "take_profit"), "stop_loss", effv(p.code, "stop_loss"),
+                                "trail_pct", effv(p.code, "trail_pct"), "tp_price", effv(p.code, "tp_price"), "sl_price", effv(p.code, "sl_price")),
                         "pending", p.sellPending, "wait", p.placeholder));
             }
             String block = orderBlock();
@@ -568,11 +684,11 @@ public final class Trader {
     }
 
     public String shortStatus() {
-        if (!b("enabled")) return "";
         synchronized (lock) {
             int held = 0;
-            for (Pos p : pos.values()) if (p.qty > 0 && p.bot) held++;
-            return " · 💰" + (halted ? "정지" : "ON") + " " + held + "종목";
+            for (Pos p : pos.values()) if (p.qty > 0) held++;
+            if (!b("enabled") && held == 0) return "";
+            return " · 💰" + (b("enabled") ? (halted ? "정지" : "자동") : "수동") + " " + held + "종목";
         }
     }
 }
