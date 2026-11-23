@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>조건검색 알림</title>
+<style>
+:root{--bg:#0e131d;--card:#161d2b;--line:#253049;--tx:#e6ebf5;--mu:#8592ad;--ac:#4f8cff;--up:#ff5a5f;--dn:#3d8bff;--ok:#28c76f;--warn:#ffb020}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;padding-bottom:76px}
+header{position:sticky;top:0;z-index:5;background:#0e131dee;backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:10px 14px}
+.top{display:flex;align-items:center;gap:10px}.dot{width:10px;height:10px;border-radius:50%;background:#555;flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.err{background:var(--up)}
+#status{font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+main{padding:12px;max-width:900px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 8px;color:#c9d3e6;display:flex;align-items:center;gap:6px}h2 .sp{flex:1}
+.mu{color:var(--mu);font-size:13px}
+button{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 14px;font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap}
+button.sec{background:#26324b}button.red{background:#c9474b}button.sm{padding:6px 10px;font-size:13px;border-radius:8px}
+button.ic{background:#1f2940;padding:6px 9px;font-size:15px;border-radius:8px}
+input,select,textarea{width:100%;background:#0d1320;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:15px}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--ac);flex:none}
+label{display:block;font-size:13px;color:var(--mu);margin:8px 0 4px}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row>.nf{flex:none}
+.slot{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.slot:last-child{border:0}
+.slot .n{width:18px;color:var(--mu);font-weight:700;text-align:center;flex:none}.slot select,.slot input[type=text]{flex:1;min-width:0}
+.badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:20px;background:#26324b;color:#b9c6e0;margin:1px 3px 1px 0;white-space:nowrap;font-weight:600}
+.badge.live{background:#173d2a;color:#5be39a}.badge.hit{background:#3a2330;color:#ff8fa3}.badge.off{background:#3a3220;color:#ffc35a}
+.up{color:var(--up)}.dn{color:var(--dn)}
+.st{padding:10px 0;border-top:1px solid #1d263a}.st:first-of-type{border-top:0}
+.st .l1{display:flex;align-items:baseline;gap:6px}.st .nm{font-weight:700;font-size:15.5px}.st .cd{color:var(--mu);font-size:12px}
+.st .px{margin-left:auto;text-align:right;font-weight:700;white-space:nowrap}.st .px small{font-weight:600;margin-left:6px}
+.st .l2{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:12.5px;color:var(--mu)}.st .l2 .bt{margin-left:auto;display:flex;gap:5px}
+.ix{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #1d263a}.ix:first-of-type{border-top:0}
+.ix .nm{font-weight:700;width:56px}.ix .v{flex:1;font-weight:700}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.log{font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;max-height:60vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.log .error{color:#ff8a8d}.log .warn{color:var(--warn)}.log .debug{color:#6f7c96}
+.alert{padding:9px 0;border-bottom:1px solid var(--line);white-space:pre-wrap;font-size:14px}.alert .t{color:var(--mu);font-size:12px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#121a28;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+nav a{flex:1;text-align:center;padding:9px 0 11px;color:var(--mu);text-decoration:none;font-size:12px}nav a.on{color:var(--ac);font-weight:700}
+nav a i{display:block;font-style:normal;font-size:19px}
+.tab{display:none}.tab.on{display:block}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#273452;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;display:none;max-width:90%;z-index:20}
+.empty{color:var(--mu);text-align:center;padding:18px 0;font-size:14px}
+.help{background:#111a2a;border-radius:10px;padding:10px 12px;font-size:13px;color:#a9b5cc;margin-top:8px;line-height:1.55}
+code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-break:break-all}
+#mask{position:fixed;inset:0;background:#0008;z-index:10;display:none}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:11;background:#151c2a;border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:86vh;overflow:auto;display:none;max-width:700px;margin:0 auto}
+#sheet h3{margin:0 0 4px;font-size:17px}.sw{display:flex;align-items:center;gap:10px;padding:10px 0;font-weight:600}
+</style></head><body>
+<header><div class="top"><span id="dot" class="dot"></span><span id="status">불러오는 중…</span>
+<button id="btnStart" data-act="start">▶ 시작</button><button id="btnStop" class="red" style="display:none" data-act="stop">■ 중지</button></div></header>
+<main>
+<section class="tab on" id="t-watch">
+  <div class="card"><h2>🏛 지수 <span class="sp"></span><span class="mu">기본 감시 · 🔔로 설정</span></h2><div id="ixs"></div></div>
+  <div id="groups"></div>
+  <div class="card"><h2>최근 알림</h2><div id="alerts"></div></div>
+</section>
+<section class="tab" id="t-cond">
+  <div class="card"><h2>조건검색식 슬롯</h2>
+  <div class="mu">영웅문4 [0150]에서 저장한 조건식을 고르세요. <b>체크 + 적용</b> = 실시간 감시(편입 시 알림), <b>🔍</b> = 지금 바로 1회 검색.</div>
+  <div id="slots" style="margin-top:6px"></div>
+  <div class="row" style="margin-top:10px"><button class="sec" data-act="conds">↻ 목록 불러오기</button><button data-act="saveSlots">적용</button></div>
+  <div class="help" id="condhelp"></div></div>
+  <div class="card"><h2>⭐ 관심종목 (직접 감시)</h2><label>종목코드 (쉼표로 구분)</label><textarea id="wl" rows="2" placeholder="005930, 000660"></textarea>
+  <div class="row" style="margin-top:8px"><button data-act="saveWL">저장</button></div></div>
+</section>
+<section class="tab" id="t-alert">
+  <div class="card"><h2>기본 알림 조건 (모든 종목)</h2>
+  <div class="mu">종목마다 다르게 하려면 감시 탭에서 종목의 🔔를 누르세요. 지수는 감시 탭 지수 카드의 🔔.</div>
+  <div class="row" style="margin-top:10px"><input type="checkbox" id="a_on_enter" class="nf"><span>조건식 <b>편입</b> 시 알림</span></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_on_exit" class="nf"><span>조건식 <b>이탈</b> 시 알림</span></div>
+  <div class="grid2">
+   <div><label>전일대비 등락률 단계(%)</label><input id="a_day_step" type="number" step="0.5" inputmode="decimal"></div>
+   <div><label>편입가 대비 변동 단계(%)</label><input id="a_entry_step" type="number" step="0.5" inputmode="decimal"></div>
+   <div><label>급등락 기준(%)</label><input id="a_surge_pct" type="number" step="0.5" inputmode="decimal"></div>
+   <div><label>급등락 시간창(분)</label><input id="a_surge_min" type="number" step="1" inputmode="decimal"></div>
+   <div><label>같은 알림 재발송 간격(분)</label><input id="a_cooldown_min" type="number" step="1" inputmode="decimal"></div>
+   <div><label>최대 감시 종목 수</label><input id="a_max_watch" type="number" step="10" inputmode="numeric"></div>
+  </div>
+  <div class="row" style="margin-top:10px"><input type="checkbox" id="a_keep_after_exit" class="nf"><span>이탈 후에도 목록에 남겨 계속 감시</span></div>
+  <h2 style="margin-top:16px">알림 받을 곳</h2>
+  <div class="row"><input type="checkbox" id="a_phone_notify" class="nf"><span>📱 폰 알림</span><button class="sec sm nf" data-act="phoneTest">테스트</button></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_kakao_notify" class="nf"><span>💬 카카오톡 알림</span></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_quiet" class="nf"><span>모든 알림 일시중지 (화면에만 기록)</span></div>
+  <div class="row" style="margin-top:6px"><input type="checkbox" id="a_autostart" class="nf"><span>앱 실행 시 자동으로 감시 시작</span></div>
+  <div class="help">단계 3% → +3%, +6%, +9%… 또는 −3%, −6%… 를 처음 넘을 때 1회 알림. 0 = 끔.<br>급등락: 시간창 안에서 저점 대비 상승 / 고점 대비 하락이 기준 이상이면 알림.</div>
+  <div class="row" style="margin-top:10px"><button data-act="saveAlerts">저장</button></div></div>
+</section>
+<section class="tab" id="t-set">
+  <div class="card"><h2>카카오톡 알림 받을 사람</h2><div id="recips"></div>
+  <label>받는 사람 이름 (구분용)</label><div class="row"><input id="rname" placeholder="예: 나, 아내"><button class="nf" data-act="kakaoLogin">카카오 연결</button></div>
+  <div class="help">‘카카오 연결’을 누르면 휴대폰 브라우저가 열립니다. 동의를 마치면 이 앱으로 돌아오세요.<br>카카오 개발자 Redirect URI: <code id="ruri"></code></div>
+  <div class="row" style="margin-top:10px"><button class="sec" data-act="kakaoTest">테스트 메시지 보내기</button></div></div>
+  <div class="card"><h2>키움 REST API</h2>
+  <label>App Key</label><input id="s_appkey" autocomplete="off"><label>Secret Key</label><input id="s_secretkey" type="password" autocomplete="off">
+  <div class="row" style="margin-top:10px"><input type="checkbox" id="s_mock" class="nf"><span>모의투자 서버 사용</span></div>
+  <div class="row" style="margin-top:10px"><span class="mu" id="myip">현재 공인 IP: -</span><button class="sec sm nf" data-act="myip">내 IP 확인</button></div>
+  <h2 style="margin-top:16px">카카오 개발자 앱</h2>
+  <label>REST API 키</label><input id="s_krest" autocomplete="off"><label>Client Secret (사용 설정한 경우만)</label><input id="s_ksecret" type="password" autocomplete="off">
+  <div class="row" style="margin-top:12px"><button data-act="saveSettings">저장</button></div>
+  <div class="help">키는 이 휴대폰 앱 안에만 저장됩니다. ‘abcd••••’로 보이면 이미 저장된 상태이며 비워두면 유지됩니다.<br>이 앱은 알림 전용이라 주문 기능이 없습니다. 모의투자 서버에서 조건검색이 안 되면 실전 서버(체크 해제) + 실전 App Key 로 바꿔 보세요.</div></div>
+  <div class="card"><h2>백그라운드 실행</h2>
+  <div class="mu">앱 화면을 닫아도 상단 알림창에 <b>📡 조건검색 알림</b>이 떠 있는 동안 계속 감시합니다.</div>
+  <div class="row" style="margin-top:10px"><button class="sec" onclick="location.href='app://battery'">🔋 절전 제외 허용</button><button class="red" data-act="exit">⏻ 앱 완전 종료</button></div>
+  <div class="mu" style="margin-top:8px" id="ver"></div></div>
+</section>
+<section class="tab" id="t-log"><div class="card"><h2>로그 <span class="sp"></span><label class="nf" style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showDebug" checked>원본 응답</label></h2><div class="log" id="log"></div></div></section>
+</main>
+<nav><a href="#" data-t="watch" class="on"><i>📊</i>감시</a><a href="#" data-t="cond"><i>🔎</i>조건식</a><a href="#" data-t="alert"><i>🔔</i>알림</a><a href="#" data-t="set"><i>⚙️</i>설정</a><a href="#" data-t="log"><i>📜</i>로그</a></nav>
+<div id="mask"></div><div id="sheet"></div>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);let S=null,formsFilled=false,condSig='';
+let PIN=new URLSearchParams(location.search).get('t')||'';
+const MANUAL='__manual__';
+document.querySelectorAll('nav a').forEach(a=>a.onclick=e=>{e.preventDefault();document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',x===a));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id==='t-'+a.dataset.t));window.scrollTo(0,0);});
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3500);}
+async function api(path,body){const o={method:body===undefined?'GET':'POST',headers:{'X-PIN':PIN,'Content-Type':'application/json'}};if(body!==undefined)o.body=JSON.stringify(body);
+ const r=await fetch(path,o);if(r.status===401){$('#status').textContent='앱을 다시 열어 주세요';throw new Error('PIN');}return r.json();}
+async function act(path,body){try{const r=await api(path,body||{});toast((r.ok?'✅ ':'⚠️ ')+r.msg);refresh();return r;}catch(e){}}
+const f=(n,d=0)=>n==null?'-':Number(n).toLocaleString('ko-KR',{maximumFractionDigits:d,minimumFractionDigits:d});
+const cls=r=>r>0?'up':r<0?'dn':'';const sg=r=>r==null?'-':(r>0?'+':'')+Number(r).toFixed(2)+'%';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const enc=s=>encodeURIComponent(s);const dec=s=>decodeURIComponent(s);
+
+function stockRow(r,g){
+ const gi=g===MANUAL?null:r.groups.find(x=>x.name===g);
+ const b=[];if(gi&&gi.hits>0)b.push(`<span class="badge hit">${gi.hits}회</span>`);if(gi&&!gi.active)b.push('<span class="badge">이탈</span>');
+ if(r.mute)b.push('<span class="badge off">🔕</span>');if(r.custom)b.push('<span class="badge">⚙개별</span>');
+ const info=[];if(gi&&gi.first)info.push('최초 '+gi.first);if(gi&&gi.last&&gi.last!==gi.first)info.push('최근 '+gi.last);
+ if(r.entry_rate!=null)info.push(`편입후 <b class="${cls(r.entry_rate)}">${sg(r.entry_rate)}</b>`);
+ return `<div class="st"><div class="l1"><span class="nm">${esc(r.name)}</span><span class="cd">${r.code}</span>${b.join('')}<span class="px">${r.price?f(r.price):'-'}<small class="${cls(r.rate)}">${r.price?sg(r.rate):''}</small></span></div>
+ <div class="l2"><span>${info.join(' · ')}</span><span class="bt"><button class="ic" data-act="stockSheet" data-code="${r.code}">🔔</button>${g!==MANUAL&&!r.manual?`<button class="ic" data-act="addWL" data-code="${r.code}">⭐</button>`:''}<button class="ic" data-act="del" data-code="${r.code}" data-g="${enc(g)}">🗑</button></span></div></div>`;}
+
+function renderWatch(){
+ $('#ixs').innerHTML=S.indices.map(i=>`<div class="ix"><span class="nm">${i.name}</span><span class="v">${i.price?f(i.price,2):'-'} <span class="${cls(i.rate)}">${i.price?sg(i.rate):''}</span></span>${i.enabled?'<span class="badge live">알림 ON</span>':'<span class="badge off">알림 OFF</span>'}<button class="ic" data-act="ixSheet" data-code="${i.code}">🔔</button></div>`).join('');
+ const actv=Object.values(S.active);let html='';
+ for(const g of S.groups){const rows=S.watch.filter(r=>r.groups.some(x=>x.name===g));
+  rows.sort((a,b)=>{const A=a.groups.find(x=>x.name===g),B=b.groups.find(x=>x.name===g);return (B.last||'').localeCompare(A.last||'');});
+  html+=`<div class="card"><h2>🔎 ${esc(g)} <span class="mu">${rows.length}종목</span>${actv.includes(g)?'<span class="badge live">실시간</span>':''}<span class="sp"></span>${rows.length?`<button class="sec sm" data-act="clear" data-g="${enc(g)}">비우기</button>`:''}</h2>${rows.length?rows.map(r=>stockRow(r,g)).join(''):'<div class="empty">아직 검색된 종목이 없습니다</div>'}</div>`;}
+ const man=S.watch.filter(r=>r.manual);
+ if(man.length)html+=`<div class="card"><h2>⭐ 관심종목 <span class="mu">${man.length}종목</span><span class="sp"></span></h2>${man.map(r=>stockRow(r,MANUAL)).join('')}</div>`;
+ if(!S.groups.length&&!man.length)html=`<div class="card"><div class="empty">감시 중인 종목이 없습니다.<br>▶시작 → 🔎조건식 탭에서 조건식을 <b>적용</b>하거나 <b>🔍</b>를 누르세요.</div></div>`;
+ $('#groups').innerHTML=html;}
+
+function render(){
+ $('#status').textContent=S.status+(S.error&&!S.connected?' · '+S.error:'');
+ $('#dot').className='dot '+(S.connected?'on':S.error?'err':'');
+ $('#btnStart').style.display=S.running?'none':'';$('#btnStop').style.display=S.running?'':'none';
+ renderWatch();
+ $('#alerts').innerHTML=S.alert_log.length?S.alert_log.slice(0,30).map(a=>`<div class="alert"><div class="t">${a.t}</div>${esc(a.msg)}</div>`).join(''):'<div class="empty">아직 알림이 없습니다</div>';
+ const dbg=$('#showDebug').checked;
+ $('#log').innerHTML=S.logs.slice().reverse().filter(l=>dbg||l.lv!=='debug').map(l=>`<div class="${l.lv}">[${l.t}] ${esc(l.msg)}</div>`).join('');
+ $('#recips').innerHTML=S.recipients.length?S.recipients.map(r=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span>💬 <b>${esc(r.name)}</b> <span class="mu">(~${r.ok_until})</span>${r.scope_ok?'':' <span class="badge off">메시지 권한 없음</span>'}</span><button class="sec sm nf" data-act="delR" data-n="${enc(r.name)}">삭제</button></div>`).join(''):'<div class="mu">아직 연결된 사람이 없습니다.</div>';
+ $('#ruri').textContent=S.redirect_uri;$('#myip').textContent='현재 공인 IP: '+(S.public_ip||'-');$('#ver').textContent='버전 '+S.version;
+ const sig=JSON.stringify([S.conditions,S.active]);if(sig!==condSig||!formsFilled){condSig=sig;renderSlots(formsFilled?readSlots():S.slots);}
+ $('#condhelp').innerHTML=(S.conditions.length?`불러온 조건식 ${S.conditions.length}개 · 실시간 감시 중: ${Object.values(S.active).map(n=>`<span class="badge live">${esc(n)}</span>`).join('')||'없음'}`:'조건식 목록은 ▶시작(키움 연결) 후 자동으로 불러옵니다.')+'<br>결과가 안 나오면 📜로그 탭의 <b>수신 CNSRREQ</b> 줄을 캡처해 보내 주세요.';
+ if(!formsFilled){formsFilled=true;const a=S.alerts;for(const k in a){const el=$('#a_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!a[k];else el.value=a[k];}
+  $('#wl').value=S.watchlist;const s=S.settings;$('#s_appkey').value=s.appkey;$('#s_secretkey').value=s.secretkey;$('#s_mock').checked=s.mock;$('#s_krest').value=s.kakao_rest_key;$('#s_ksecret').value=s.kakao_client_secret;}
+}
+function renderSlots(slots){const C=S.conditions;const live=Object.keys(S.active);
+ $('#slots').innerHTML=slots.map((s,i)=>{const on=live.includes(s.seq)||Object.values(S.active).includes(s.name);
+  const inp=C.length?`<select data-i="${i}" class="sel"><option value="">— 조건식 선택 —</option>${C.map(([q,n])=>`<option value="${esc(q)}" ${(q===s.seq||n===s.name)?'selected':''}>${esc(n)}</option>`).join('')}${(s.name&&!C.some(([q,n])=>n===s.name))?`<option value="" selected>(없음) ${esc(s.name)}</option>`:''}</select>`
+  :`<input type="text" data-i="${i}" class="txt" placeholder="조건식 이름" value="${esc(s.name)}">`;
+  return `<div class="slot"><span class="n">${i+1}</span><input type="checkbox" class="en" ${s.enabled?'checked':''}>${inp}${on?'<span class="badge live nf">감시중</span>':''}<button class="ic nf" data-act="search" data-i="${i}">🔍</button></div>`;}).join('');}
+function readSlots(){const C=S.conditions;return [...document.querySelectorAll('.slot')].map((d,i)=>{const en=d.querySelector('.en').checked;const sel=d.querySelector('.sel'),txt=d.querySelector('.txt');
+ if(sel){const q=sel.value;const c=C.find(x=>x[0]===q);if(c)return{enabled:en,seq:c[0],name:c[1]};const old=S.slots[i]||{};return{enabled:en,seq:'',name:sel.selectedOptions[0]&&sel.selectedOptions[0].text.startsWith('(없음)')?old.name:''};}
+ return{enabled:en,seq:'',name:txt.value.trim()};});}
+
+// ── 알림 설정 시트 ──
+function openSheet(html){$('#sheet').innerHTML=html;$('#sheet').style.display='block';$('#mask').style.display='block';}
+function closeSheet(){$('#sheet').style.display='none';$('#mask').style.display='none';}
+$('#mask').onclick=closeSheet;
+const v=x=>(x==null||x===0||x==='')?'':x;
+function stockSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:code};const o=S.stock_alerts[code]||{};const a=S.alerts;
+ openSheet(`<h3>🔔 ${esc(r.name)} <span class="mu">${code}</span></h3><div class="mu">비워 두면 기본값(알림 탭)을 따릅니다.</div>
+ <div class="sw"><input type="checkbox" id="k_mute" ${o.mute?'checked':''}><span>이 종목 알림 끄기 🔕</span></div>
+ <div class="grid2">
+ <div><label>전일대비 단계(%)</label><input id="k_day_step" inputmode="decimal" placeholder="기본 ${a.day_step}" value="${v(o.day_step)}"></div>
+ <div><label>편입가 대비 단계(%)</label><input id="k_entry_step" inputmode="decimal" placeholder="기본 ${a.entry_step}" value="${v(o.entry_step)}"></div>
+ <div><label>급등락 기준(%)</label><input id="k_surge_pct" inputmode="decimal" placeholder="기본 ${a.surge_pct}" value="${v(o.surge_pct)}"></div>
+ <div><label>급등락 시간창(분)</label><input id="k_surge_min" inputmode="decimal" placeholder="기본 ${a.surge_min}" value="${v(o.surge_min)}"></div>
+ <div><label>🎯 목표가(원) 이상</label><input id="k_price_up" inputmode="numeric" placeholder="없음" value="${v(o.price_up)}"></div>
+ <div><label>⛔ 손절가(원) 이하</label><input id="k_price_dn" inputmode="numeric" placeholder="없음" value="${v(o.price_dn)}"></div></div>
+ <div class="mu" style="margin-top:6px">현재가 ${r.price?f(r.price)+'원 ('+sg(r.rate)+')':'-'}${r.entry_price?' · 편입가 '+f(r.entry_price)+'원':''}</div>
+ <div class="row" style="margin-top:14px"><button data-act="saveStock" data-code="${code}">저장</button><button class="sec" data-act="resetStock" data-code="${code}">기본값으로</button></div>
+ <div class="row" style="margin-top:8px"><button class="sec" data-act="close">닫기</button>${r.manual?'':`<button class="sec" data-act="addWL" data-code="${code}">⭐ 관심 추가</button>`}<button class="red" data-act="del" data-code="${code}" data-g="">🗑 전체 삭제</button></div>`);}
+function ixSheet(code){const i=S.indices.find(x=>x.code===code);const o=S.index_alerts[code]||{};
+ openSheet(`<h3>🔔 ${i.name} 지수 알림</h3>
+ <div class="sw"><input type="checkbox" id="k_enabled" ${o.enabled!==false?'checked':''}><span>알림 사용</span></div>
+ <div class="grid2">
+ <div><label>등락률 단계(%)</label><input id="k_step" inputmode="decimal" placeholder="0=끔" value="${v(o.step)}"></div>
+ <div><label>급등락 기준(%)</label><input id="k_surge_pct" inputmode="decimal" placeholder="0=끔" value="${v(o.surge_pct)}"></div>
+ <div><label>급등락 시간창(분)</label><input id="k_surge_min" inputmode="decimal" placeholder="예: 5" value="${v(o.surge_min)}"></div>
+ <div></div>
+ <div><label>🎯 지수 이상 도달</label><input id="k_price_up" inputmode="decimal" placeholder="없음" value="${v(o.price_up)}"></div>
+ <div><label>⛔ 지수 이하 도달</label><input id="k_price_dn" inputmode="decimal" placeholder="없음" value="${v(o.price_dn)}"></div></div>
+ <div class="mu" style="margin-top:6px">현재 ${i.price?f(i.price,2)+' ('+sg(i.rate)+')':'-'}</div>
+ <div class="row" style="margin-top:14px"><button data-act="saveIx" data-code="${code}">저장</button><button class="sec" data-act="close">닫기</button></div>`);}
+const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
+
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,code=b.dataset.code;
+ switch(a){
+ case 'start':act('/api/start');break; case 'stop':act('/api/stop');break; case 'conds':act('/api/conditions');break;
+ case 'saveSlots':act('/api/slots',{slots:readSlots()});break;
+ case 'search':{const s=readSlots()[+b.dataset.i];if(!s.seq&&!s.name){toast('조건식을 먼저 선택하세요');break;}const r=await act('/api/search',{seq:s.seq||s.name});if(r&&r.ok)document.querySelector('nav a[data-t=watch]').click();break;}
+ case 'saveWL':act('/api/watchlist',{text:$('#wl').value}).then(()=>{formsFilled=false;});break;
+ case 'saveAlerts':{const o={};['on_enter','on_exit','keep_after_exit','quiet','phone_notify','kakao_notify','autostart'].forEach(k=>o[k]=$('#a_'+k).checked);['day_step','entry_step','surge_pct','surge_min','cooldown_min','max_watch'].forEach(k=>o[k]=Number($('#a_'+k).value||0));act('/api/alerts',o);break;}
+ case 'saveSettings':act('/api/settings',{appkey:$('#s_appkey').value,secretkey:$('#s_secretkey').value,mock:$('#s_mock').checked,kakao_rest_key:$('#s_krest').value,kakao_client_secret:$('#s_ksecret').value}).then(()=>{formsFilled=false;});break;
+ case 'myip':act('/api/myip');break; case 'phoneTest':act('/api/phone/test');break; case 'kakaoTest':act('/api/kakao/test');break;
+ case 'kakaoLogin':location.href='/kakao/login?name='+enc($('#rname').value.trim()||'나')+'&pin='+enc(PIN);break;
+ case 'delR':if(confirm(dec(b.dataset.n)+' 을(를) 삭제할까요?'))act('/api/kakao/remove',{name:dec(b.dataset.n)});break;
+ case 'exit':if(confirm('감시를 멈추고 앱을 완전히 종료할까요?'))location.href='app://exit';break;
+ case 'stockSheet':stockSheet(code);break; case 'ixSheet':ixSheet(code);break; case 'close':closeSheet();break;
+ case 'saveStock':{const s={mute:$('#k_mute').checked};['day_step','entry_step','surge_pct','surge_min','price_up','price_dn'].forEach(k=>s[k]=gv('k_'+k));const r=await act('/api/stock_alert',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'resetStock':{const r=await act('/api/stock_alert',{code,reset:true});if(r&&r.ok)closeSheet();break;}
+ case 'saveIx':{const s={enabled:$('#k_enabled').checked};['step','surge_pct','surge_min','price_up','price_dn'].forEach(k=>s[k]=gv('k_'+k));const r=await act('/api/index_alert',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'addWL':{const r=await act('/api/watch/add',{code});formsFilled=false;closeSheet();break;}
+ case 'del':{const g=dec(b.dataset.g||'');const r=S.watch.find(x=>x.code===code);const nm=r?r.name:code;
+   const where=g===''?'모든 목록':(g===MANUAL?'관심종목':'['+g+']');if(!confirm(`${nm} 을(를) ${where}에서 삭제할까요?`))break;
+   await act('/api/watch/remove',{code,group:g});closeSheet();formsFilled=false;break;}
+ case 'clear':{const g=dec(b.dataset.g);if(confirm(`[${g}] 목록을 모두 비울까요?`))act('/api/watch/clear',{group:g});break;}
+ }});
+async function refresh(){try{S=await api('/api/state');render();}catch(e){}}
+refresh();setInterval(refresh,1500);
+</script></body></html>
