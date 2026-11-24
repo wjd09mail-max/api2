@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.4.0";
+    public static final String VERSION = "3.5.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
@@ -338,7 +338,15 @@ public final class AppCore {
                 return new Object[]{true, "조건식 저장됨. " + r[1]};
             }
             case "/api/trade/settings": {
-                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell", "bear_min", "bear_cnt"};
+                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell", "bear_min", "bear_cnt", "auto_pct", "auto_min", "auto_cnt", "auto_wait"};
+                if (b.containsKey("auto_mode") && !java.util.Arrays.asList(Trader.AUTO_MODES).contains(Json.s(b.get("auto_mode"))))
+                    return new Object[]{false, "자동매수 방식이 올바르지 않습니다"};
+                if (b.containsKey("auto_min") && !Candles.validScope((int) Json.d(Json.s(b.get("auto_min")), 0)))
+                    return new Object[]{false, "자동매수 분봉은 1/3/5/10/15/30/45/60 중 하나"};
+                if (b.containsKey("auto_cnt") && (Json.d(Json.s(b.get("auto_cnt")), 0) < 1 || Json.d(Json.s(b.get("auto_cnt")), 0) > 10))
+                    return new Object[]{false, "봉 개수는 1~10"};
+                if (b.containsKey("auto_pct") && (Json.d(Json.s(b.get("auto_pct")), 0) <= 0 || Json.d(Json.s(b.get("auto_pct")), 0) >= 30))
+                    return new Object[]{false, "하락 % 는 0~30 사이"};
                 if (b.containsKey("bear_min")) {
                     int bm = (int) Json.d(Json.s(b.get("bear_min")), -1);
                     if (bm != 0 && !Candles.validScope(bm)) return new Object[]{false, "음봉 매도 분봉은 끔/1/3/5/10/15/30/45/60 중 하나"};
@@ -366,6 +374,7 @@ public final class AppCore {
                         tr.put(k, v);
                     }
                     if (!bearOld.equals(Json.d(tr.get("bear_min"), 0) + "/" + Json.d(tr.get("bear_cnt"), 1))) tr.put("bear_at", (double) System.currentTimeMillis());
+                    if (b.containsKey("auto_mode")) tr.put("auto_mode", Json.s(b.get("auto_mode")));
                     if (b.containsKey("order_type")) tr.put("order_type", "limit".equals(Json.s(b.get("order_type"))) ? "limit" : "market");
                     cfg.save();
                 }

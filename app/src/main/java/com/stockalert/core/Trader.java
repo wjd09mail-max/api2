@@ -214,6 +214,11 @@ public final class Trader {
     /** 조건식 편입 신호 → 자동매수 (조건식 자동매수 ON 일 때만) */
     public void onSignal(final String code, final String cond, final double price, final String name) {
         if (!b("enabled") || !slotBuy(cond)) return;
+        final String mode = Json.s(t.get("auto_mode"));
+        if (!mode.isEmpty() && !"now".equals(mode)) {
+            q.offer(() -> autoPlan(code, cond, price, name, mode));
+            return;
+        }
         q.offer(() -> {
             String why = autoBuyBlock(code);
             if (why != null) {
@@ -737,7 +742,73 @@ public final class Trader {
     }
 
     // ───────── 매수 예약 (하락 매수 / 시초가 매수 / n분봉 양봉 매수) ─────────
-    static final String[] PLAN_TYPES = {"dip", "open", "bull"};
+    static final String[] PLAN_TYPES = {"dip", "open", "bull", "bear", "touch"};
+    static final String[] AUTO_MODES = {"now", "dip", "bull", "bear", "touch"};
+
+    /** 다시 시도해도 소용없는 자동매수 차단 사유 */
+    private static boolean permanentBlock(String why) {
+        return why.contains("오늘 이미") || why.contains("이미 보유") || why.contains("하루 최대") || why.contains("최대 보유") || why.contains("매수 마감");
+    }
+
+    /** 조건식 편입 → 바로 사지 않고 '자동 예약'을 걸어 둠 (매매 탭 설정의 매수 방식) */
+    private void autoPlan(String code, String cond, double price, String name, String mode) {
+        String lb = label(code, name);
+        String why = autoBuyBlock(code);
+        if (why != null && permanentBlock(why)) {
+            Logx.add("자동매수 건너뜀 " + lb + ": " + why);
+            return;
+        }
+        synchronized (lock) {
+            Map<String, Object> old = plans.get(code);
+            if (old != null) {
+                if (!Json.b(old.get("auto"))) Logx.add("자동매수 건너뜀 " + lb + ": 이미 직접 건 매수 예약이 있음");
+                return;                                       // 이미 대기 중
+            }
+        }
+        Map<String, Object> in = Json.map("code", code, "name", name, "type", mode, "amount", n("buy_amount"),
+                "basis", "price", "base", price, "pct", n("auto_pct"), "min", n("auto_min"), "cnt", n("auto_cnt"));
+        Object[] r = buildPlan(in);
+        if (!(Boolean) r[0]) {
+            Logx.add("자동매수 예약 실패 " + lb + ": " + r[1], "warn");
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> pl = (Map<String, Object>) r[2];
+        long now = System.currentTimeMillis();
+        double wait = n("auto_wait");
+        long exp;
+        if (wait > 0) exp = now + (long) (wait * 60_000);
+        else {
+            String en = Json.s(t.get("buy_end"));
+            int hh = 15, mm = 20;
+            if (en.matches("\\d\\d:\\d\\d")) {
+                hh = Integer.parseInt(en.substring(0, 2));
+                mm = Integer.parseInt(en.substring(3));
+            }
+            exp = Candles.todayAt(hh, mm);
+            if (exp <= now) exp = now + 60_000;
+        }
+        pl.put("auto", true);
+        pl.put("cond", cond);
+        pl.put("expires", (double) exp);
+        synchronized (lock) {
+            if (plans.size() >= 30) {
+                Logx.add("자동매수 예약 건너뜀 " + lb + ": 예약이 30개로 가득 참", "warn");
+                return;
+            }
+            plans.put(code, pl);
+        }
+        eng.watchHeld(code, Json.s(pl.get("name")));
+        save();
+        Logx.add("[" + cond + "] 편입 → 자동매수 대기 " + lb + ": " + planText(pl));
+        kakao.push("⏳ 자동매수 대기 [" + cond + "]\n" + lb + "\n" + planText(pl) + "\n(" + hm(exp) + "까지)");
+    }
+
+    static String hm(long ms) {
+        SimpleDateFormat f = new SimpleDateFormat("HH:mm", Locale.KOREA);
+        f.setTimeZone(KST);
+        return f.format(new Date(ms));
+    }
 
     static String planText(Map<String, Object> pl) {
         String ty = Json.s(pl.get("type"));
@@ -749,11 +820,14 @@ public final class Trader {
                     Engine.won(Json.d(pl.get("base"), 0)), Json.d(pl.get("pct"), 0));
         } else if ("open".equals(ty)) {
             s = "시초가 (09:00 시장가)";
+        } else if ("touch".equals(ty)) {
+            s = "시가 " + Engine.won(Json.d(pl.get("open"), 0)) + "원 도달 (" + ("down".equals(Json.s(pl.get("side"))) ? "내려오면" : "올라오면") + ")";
         } else {
             int c = (int) Json.d(pl.get("cnt"), 1);
-            s = (int) Json.d(pl.get("min"), 1) + "분봉 양봉" + (c > 1 ? " " + c + "개 연속" : "");
+            s = (int) Json.d(pl.get("min"), 1) + "분봉 " + ("bear".equals(ty) ? "음봉" : "양봉") + (c > 1 ? " " + c + "개 연속" : "");
         }
-        return s + " → " + Engine.won(Json.d(pl.get("amount"), 0)) + "원 매수";
+        String pre = Json.b(pl.get("auto")) ? "[" + Json.s(pl.get("cond")) + "] " : "";
+        return pre + s + " → " + Engine.won(Json.d(pl.get("amount"), 0)) + "원 매수";
     }
 
     static String bearText(double min, double cnt) {
@@ -761,7 +835,8 @@ public final class Trader {
         return (int) min + "분봉 음봉" + (cnt > 1 ? " " + (int) cnt + "개 연속" : "") + " 시 매도";
     }
 
-    public Object[] addPlan(Map<String, Object> in) {
+    /** 예약 내용 검사/작성 → {ok, msg, plan}. 네트워크 조회가 있을 수 있음 */
+    private Object[] buildPlan(Map<String, Object> in) {
         String code = Engine.cleanCode(in.get("code"));
         if (code.isEmpty()) return new Object[]{false, "종목코드가 없습니다"};
         String ty = Json.s(in.get("type"));
@@ -792,12 +867,29 @@ public final class Trader {
                 pl.put("base", base);
                 pl.put("target", (double) Math.floor(base * (1 - pct / 100)));
             }
-        } else if ("bull".equals(ty)) {
+        } else if ("bull".equals(ty) || "bear".equals(ty)) {
             int min = (int) Json.d(in.get("min"), 0), cnt = (int) Json.d(in.get("cnt"), 1);
             if (!Candles.validScope(min)) return new Object[]{false, "분봉은 1/3/5/10/15/30/45/60 중에서 고르세요"};
-            if (cnt < 1 || cnt > 10) return new Object[]{false, "양봉 개수는 1~10"};
+            if (cnt < 1 || cnt > 10) return new Object[]{false, "봉 개수는 1~10"};
             pl.put("min", (double) min);
             pl.put("cnt", (double) cnt);
+        } else if ("touch".equals(ty)) {
+            double op = 0, cur = Json.d(Json.s(in.get("base")).replace(",", ""), 0);
+            try {
+                if (eng.rest() == null) return new Object[]{false, "키움 미연결 (▶시작 후 예약하세요)"};
+                Object[] si = eng.rest().stockInfo(code);
+                op = si.length > 3 ? (Double) si[3] : 0;
+                double c2 = (Double) si[1];
+                if (c2 > 0) cur = c2;
+            } catch (Exception e) {
+                return new Object[]{false, "시가 조회 실패: " + e.getMessage()};
+            }
+            if (op <= 0) return new Object[]{false, "오늘 시가가 아직 없습니다 (장 시작 후 예약하세요)"};
+            if (cur <= 0) cur = eng.priceOf(code);
+            pl.put("open", op);
+            pl.put("base", cur);
+            pl.put("side", cur > op ? "down" : "up");
+            if (cur > 0 && cur == op) pl.put("hit_now", true);
         }
         int bm = (int) Json.d(in.get("bear_min"), 0), bc = (int) Json.d(in.get("bear_cnt"), 1);
         if (bm > 0) {
@@ -806,6 +898,16 @@ public final class Trader {
             pl.put("bear_min", (double) bm);
             pl.put("bear_cnt", (double) bc);
         }
+        return new Object[]{true, "", pl};
+    }
+
+    public Object[] addPlan(Map<String, Object> in) {
+        Object[] r = buildPlan(in);
+        if (!(Boolean) r[0]) return r;
+        @SuppressWarnings("unchecked")
+        Map<String, Object> pl = (Map<String, Object>) r[2];
+        String code = Json.s(pl.get("code")), ty = Json.s(pl.get("type"));
+        int bm = (int) Json.d(pl.get("bear_min"), 0), bc = (int) Json.d(pl.get("bear_cnt"), 1);
         synchronized (lock) {
             if (!plans.containsKey(code) && plans.size() >= 30) return new Object[]{false, "매수 예약은 최대 30개까지"};
             plans.put(code, pl);
@@ -863,8 +965,18 @@ public final class Trader {
             planBusy.add(code);
         }
         try {
+            boolean auto = Json.b(pl.get("auto"));
             String blk = planBlock();
+            if (blk == null && auto) blk = autoBuyBlock(code);
             if (blk != null) {
+                if (auto && permanentBlock(blk)) {
+                    synchronized (lock) {
+                        plans.remove(code);
+                    }
+                    save();
+                    Logx.add("자동매수 대기 취소 " + label(code, Json.s(pl.get("name"))) + ": " + blk);
+                    return;
+                }
                 warnPlan(code, blk);
                 return;
             }
@@ -882,9 +994,24 @@ public final class Trader {
             save();
             String name = Json.s(pl.get("name"));
             if (name.isEmpty() || name.equals(code)) name = eng.nameOf(code);
-            Logx.add("🎯 매수 예약 실행 " + label(code, name) + ": " + why);
+            Logx.add((auto ? "🤖 [" + Json.s(pl.get("cond")) + "] 자동매수 실행 " : "🎯 매수 예약 실행 ") + label(code, name) + ": " + why);
             final String nm = name;
-            q.offer(() -> placeBuy(code, nm, price, Json.d(pl.get("amount"), 0), 0, true, 0, true, "🎯 " + why, false));
+            if (auto) {
+                synchronized (lock) {
+                    buysToday++;                          // 주문 전에 미리 세서 한도 초과 방지 (placeBuy 가 auto 면 다시 세지 않음)
+                    boughtToday.add(code);
+                }
+                String cond = Json.s(pl.get("cond"));
+                q.offer(() -> {
+                    synchronized (lock) {
+                        buysToday--;
+                        boughtToday.remove(code);
+                    }
+                    placeBuy(code, nm, price, Json.d(pl.get("amount"), 0), 0, true, 0, true, "[" + cond + "] " + why, true);
+                });
+            } else {
+                q.offer(() -> placeBuy(code, nm, price, Json.d(pl.get("amount"), 0), 0, true, 0, true, "🎯 " + why, false));
+            }
         } finally {
             synchronized (lock) {
                 planBusy.remove(code);
@@ -899,9 +1026,17 @@ public final class Trader {
         synchronized (lock) {
             pl = plans.get(code);
         }
-        if (pl == null || !"dip".equals(Json.s(pl.get("type")))) return;
+        if (pl == null) return;
+        String ty = Json.s(pl.get("type"));
         String why = null;
-        if ("rate".equals(Json.s(pl.get("basis")))) {
+        if ("touch".equals(ty)) {
+            double op = Json.d(pl.get("open"), 0);
+            boolean down = "down".equals(Json.s(pl.get("side")));
+            if (op > 0 && (Json.b(pl.get("hit_now")) || (down ? p <= op : p >= op)))
+                why = "시가 " + Engine.won(op) + "원 도달 (현재가 " + Engine.won(p) + ")";
+        } else if (!"dip".equals(ty)) {
+            return;
+        } else if ("rate".equals(Json.s(pl.get("basis")))) {
             double pct = Json.d(pl.get("pct"), 0);
             if (rate <= -pct) why = String.format(Locale.KOREA, "전일 대비 %+.2f%% (−%.1f%% 이하)", rate, pct);
         } else {
@@ -928,6 +1063,14 @@ public final class Trader {
         Map<String, int[]> need = new LinkedHashMap<>();
         for (Map<String, Object> pl : ps) {
             String code = Json.s(pl.get("code")), ty = Json.s(pl.get("type"));
+            if (Json.b(pl.get("auto")) && (now > Json.d(pl.get("expires"), 0) || !d.equals(Json.s(pl.get("day"))))) {
+                synchronized (lock) {
+                    if (plans.get(code) == pl) plans.remove(code);
+                }
+                save();
+                Logx.add("자동매수 대기 만료 " + label(code, Json.s(pl.get("name"))) + ": " + planText(pl));
+                continue;
+            }
             if ("open".equals(ty)) {
                 boolean createdBefore = Json.d(pl.get("created"), 0) < open;
                 if (weekday() && hm.compareTo("09:00") >= 0 && hm.compareTo("09:10") < 0 && createdBefore && !d.equals(Json.s(pl.get("tried")))) {
@@ -936,13 +1079,13 @@ public final class Trader {
                     }
                     q.offer(() -> firePlan(code, "시초가 매수", 0));
                 }
-            } else if ("dip".equals(ty) && now / 1000 % 3 == 0) {
+            } else if (("dip".equals(ty) || "touch".equals(ty)) && now / 1000 % 3 == 0) {
                 double p = eng.priceOf(code);
                 if (p > 0) {
                     final double rate = eng.rateOf(code);
                     q.offer(() -> checkDip(code, p, rate, false));
                 }
-            } else if ("bull".equals(ty)) {
+            } else if ("bull".equals(ty) || "bear".equals(ty)) {
                 int min = (int) Json.d(pl.get("min"), 1);
                 need.put(code + "|" + min, new int[]{min});
             }
@@ -994,11 +1137,13 @@ public final class Trader {
             auto = p != null && p.qty > 0 && autoOn(p);
         }
         long dayOpen = Candles.todayAt(9, 0);
-        if (pl != null && "bull".equals(Json.s(pl.get("type"))) && (int) Json.d(pl.get("min"), 0) == min) {
+        String pty = pl == null ? "" : Json.s(pl.get("type"));
+        if (("bull".equals(pty) || "bear".equals(pty)) && (int) Json.d(pl.get("min"), 0) == min) {
+            boolean up = "bull".equals(pty);
             int need = (int) Json.d(pl.get("cnt"), 1);
             long since = Math.max((long) Json.d(pl.get("created"), 0), dayOpen);
-            int got = Candles.streak(bars, true, since);
-            if (got >= need) firePlan(code, min + "분봉 양봉 " + got + "개" + (need > 1 ? " 연속" : ""), bars.get(0).close);
+            int got = Candles.streak(bars, up, since);
+            if (got >= need) firePlan(code, min + "분봉 " + (up ? "양봉 " : "음봉 ") + got + "개" + (need > 1 ? " 연속" : ""), bars.get(0).close);
         }
         if (auto && (int) bm == min) {
             long since = Math.max(Math.max(p.buyAt, dayOpen), bearAt(code));
@@ -1031,7 +1176,8 @@ public final class Trader {
             out.add(Json.map("code", code, "name", nm, "type", Json.s(pl.get("type")), "text", planText(pl),
                     "sell", bearText(Json.d(pl.get("bear_min"), 0), Json.d(pl.get("bear_cnt"), 1)),
                     "price", eng.priceOf(code), "rate", eng.rateOf(code), "target", Json.d(pl.get("target"), 0),
-                    "created", Json.d(pl.get("created"), 0)));
+                    "created", Json.d(pl.get("created"), 0), "auto", Json.b(pl.get("auto")),
+                    "until", Json.b(pl.get("auto")) ? hm((long) Json.d(pl.get("expires"), 0)) : ""));
         }
         return out;
     }

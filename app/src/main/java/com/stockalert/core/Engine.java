@@ -131,7 +131,8 @@ public final class Engine {
         /** [이름, 현재가, 등락률] */
         Object[] stockInfo(String code) throws Exception {
             Map<String, Object> js = call("ka10001", "/api/dostk/stkinfo", Json.map("stk_cd", code));
-            return new Object[]{Json.s(js.get("stk_nm")).trim(), Math.abs(Json.d(js.get("cur_prc"), 0)), fixRate(Json.d(js.get("flu_rt"), 0))};
+            return new Object[]{Json.s(js.get("stk_nm")).trim(), Math.abs(Json.d(js.get("cur_prc"), 0)), fixRate(Json.d(js.get("flu_rt"), 0)),
+                    Math.abs(Json.d(js.get("open_pric"), 0))};
         }
 
         /** 업종 현재가 [현재가, 등락률] (실패 시 null) */

@@ -138,6 +138,15 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
   <div class="card"><h2>🏛 지수 연동 매매 <span class="sp"></span><button class="sm" data-act="ruleSheet" data-ix="001">＋ 규칙 추가</button></h2><div id="trRules"></div>
    <div class="mu" style="margin-top:6px">지수 조건이 맞으면 정해 둔 동작을 <b>하루 1번</b> 실행합니다 (평일 09:00~15:20).</div></div>
   <div class="card"><h2>⚙️ 자동매매 설정</h2>
+   <div class="subbox" style="margin:0 0 6px"><label style="font-weight:700;color:var(--tx)">🤖 조건식 편입 시 매수 방식</label>
+    <select id="tr_auto_mode"><option value="now">⚡ 편입 즉시 매수</option><option value="dip">📉 편입가 대비 N% 하락하면 매수</option><option value="bull">🕯️ n분봉 양봉 N개 나오면 매수</option><option value="bear">🕯️ n분봉 음봉 N개 나오면 매수</option><option value="touch">🎯 시가(시작가)에 오면 매수</option></select>
+    <div class="grid2" id="am_box">
+     <div class="am am_dip"><label>하락 % (편입가 대비)</label><input id="tr_auto_pct" inputmode="decimal"></div>
+     <div class="am am_bull am_bear"><label>분봉</label><select id="tr_auto_min"></select></div>
+     <div class="am am_bull am_bear"><label>봉 연속 개수</label><input id="tr_auto_cnt" inputmode="numeric"></div>
+     <div class="am am_dip am_bull am_bear am_touch"><label>최대 대기(분) · 0=매수 마감까지</label><input id="tr_auto_wait" inputmode="numeric"></div>
+    </div>
+    <div class="mu" id="am_help" style="margin-top:6px"></div></div>
    <div class="grid2">
     <div><label>종목당 매수 금액(원)</label><input id="tr_buy_amount" inputmode="numeric"></div>
     <div><label>주문 방식</label><select id="tr_order_type"><option value="market">시장가</option><option value="limit">현재가 지정가</option></select></div>
@@ -238,7 +247,11 @@ let PIN=new URLSearchParams(location.search).get('t')||'';
 const MANUAL='__manual__';
 const MINS=[1,3,5,10,15,30,45,60];const MINOPT='<option value="0">끔</option>'+MINS.map(m=>`<option value="${m}">${m}분봉</option>`).join('');
 const minSel=(id,v,off)=>`<select id="${id}">${off?'<option value="0">끔</option>':''}${MINS.map(m=>`<option value="${m}" ${+v===m?'selected':''}>${m}분봉</option>`).join('')}</select>`;
-$('#tr_bear_min').innerHTML=MINOPT;
+$('#tr_bear_min').innerHTML=MINOPT;$('#tr_auto_min').innerHTML=MINS.map(m=>`<option value="${m}">${m}분봉</option>`).join('');
+const AMH={now:'💰 켠 조건식에 편입되면 바로 시장가 매수합니다.',dip:'편입된 가격에서 N% 내려오면 매수합니다 (눌림 매수).',bull:'편입 뒤 새로 완성된 n분봉이 양봉 N개 연속이면 매수합니다.',bear:'편입 뒤 새로 완성된 n분봉이 음봉 N개 연속이면 매수합니다 (조정 후 매수).',touch:'편입 때 오늘 시가보다 위면 시가까지 내려올 때, 아래면 시가까지 올라올 때 매수합니다.'};
+function amUI(){const m=$('#tr_auto_mode').value;document.querySelectorAll('#am_box .am').forEach(e=>e.style.display=e.classList.contains('am_'+m)?'':'none');
+ $('#am_help').innerHTML=AMH[m]+(m!=='now'?' 편입 후 <b>대기 목록</b>(🎯 매수 예약)에 올라가며, 시간이 지나면 만료됩니다. 하루 매수 횟수·보유 한도 등은 매수 순간에 확인합니다.':'');}
+$('#tr_auto_mode').addEventListener('change',amUI);
 const planOf=c=>S&&S.trade&&S.trade.plans?S.trade.plans.find(x=>x.code===c):null;
 document.querySelectorAll('nav a').forEach(a=>a.onclick=e=>{e.preventDefault();document.querySelectorAll('nav a').forEach(x=>x.classList.toggle('on',x===a));document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id==='t-'+a.dataset.t));window.scrollTo(0,0);if(a.dataset.t==='acct')acOpen();});
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3500);}
@@ -278,16 +291,16 @@ function renderTrade(){const T=S.trade,C=S.trade_cfg;const buySlots=(S.slots||[]
  ${T.block&&(T.enabled||T.positions.length)?`<div class="warnbox">⚠ 주문 불가: ${esc(T.block)}</div>`:''}
  ${T.halted?`<div class="warnbox">⛔ 자동매수 정지: ${esc(T.halt_reason)} <button class="sec sm" data-act="trResume" style="margin-left:6px">재개</button></div>`:''}
  <div class="stats"><span>오늘 매수 <b>${T.buys_today}/${T.max_buys}</b>회</span><span>예상 실현손익 <b class="${cls(T.realized)}">${T.realized>=0?'+':''}${f(T.realized)}원</b></span><span>평가손익 <b class="${cls(T.eval_pl)}">${T.eval_pl>=0?'+':''}${f(T.eval_pl)}원</b></span></div>
- <div class="mu" style="margin-top:6px">매수 조건식: ${buySlots.length?buySlots.map(n=>`<span class="badge live">${esc(n)}</span>`).join(''):'<b style="color:#ffc35a">없음 – 조건식 탭에서 💰를 켜세요</b>'} · 익절 +${C.take_profit}% · 손절 −${C.stop_loss}%${C.trail_pct>0?' · 트레일링 '+C.trail_pct+'%':''} · ${f(C.buy_amount)}원/종목</div>
+ <div class="mu" style="margin-top:6px">매수 방식: <b>${({now:'편입 즉시',dip:'편입가 −'+C.auto_pct+'%',bull:C.auto_min+'분봉 양봉 '+C.auto_cnt+'개',bear:C.auto_min+'분봉 음봉 '+C.auto_cnt+'개',touch:'시가 도달'})[C.auto_mode||'now']}</b> · 매수 조건식: ${buySlots.length?buySlots.map(n=>`<span class="badge live">${esc(n)}</span>`).join(''):'<b style="color:#ffc35a">없음 – 조건식 탭에서 💰를 켜세요</b>'} · 익절 +${C.take_profit}% · 손절 −${C.stop_loss}%${C.trail_pct>0?' · 트레일링 '+C.trail_pct+'%':''} · ${f(C.buy_amount)}원/종목</div>
  ${T.balance_err?`<div class="mu" style="color:#ffb020;margin-top:4px">잔고 조회: ${esc(T.balance_err)}</div>`:''}`;
  $('#trPos').innerHTML=T.positions.length?T.positions.map(p=>`<div class="st"><div class="l1" data-act="chart" data-code="${p.code}"><span class="nm link">${esc(p.name)}</span><span class="cd">${p.code}</span>${p.auto?'<span class="badge live">🤖자동매도</span>':'<span class="badge">자동매도 OFF</span>'}${p.custom?'<span class="badge">⚙개별</span>':''}${p.bot?'':'<span class="badge">직접보유</span>'}${p.pending?'<span class="badge off">매도중</span>':''}${p.wait?'<span class="badge">체결대기</span>':''}<span class="px">${f(p.last)}<small class="${cls(p.pnl)}">${sg(p.pnl)}</small></span></div>
   <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}${p.bear?' · 🕯️'+esc(p.bear):''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
  $('#trRules').innerHTML=ruleList(T.rules);
  const PL=T.plans||[];$('#plCnt').textContent=PL.length?PL.length+'건':'';
  $('#trPlans').innerHTML=PL.length?PL.map(x=>`<div class="plan"><div class="l1"><span class="nm link" data-act="chart" data-code="${x.code}"><b>${esc(x.name||x.code)}</b></span><span class="cd mu">${x.code}</span>${x.price?`<span>${f(x.price)} <small class="${cls(x.rate)}">${sg(x.rate)}</small></span>`:''}<span class="bt"><button class="sec sm" data-act="tradeSheet" data-code="${x.code}">수정</button> <button class="sec sm" data-act="plCancel" data-code="${x.code}">취소</button></span></div>
-  <div class="mu" style="margin-top:3px">🎯 ${esc(x.text)}${x.sell?'<br>🕯️ 매수 후 '+esc(x.sell):''}</div></div>`).join(''):'<div class="empty">예약이 없습니다</div>';
+  <div class="mu" style="margin-top:3px">${x.auto?`<span class="badge off">🤖 자동 · ${x.until}까지</span> `:''}🎯 ${esc(x.text)}${x.sell?'<br>🕯️ 매수 후 '+esc(x.sell):''}</div></div>`).join(''):'<div class="empty">예약이 없습니다</div>';
  $('#trOrders').innerHTML=T.orders.length?T.orders.map(o=>`<div class="od"><span class="mu">${o.t}</span> <span class="s ${o.side==='매수'?'up':'dn'}">${o.side}</span><b>${esc(o.name||o.code)}</b> ${f(o.qty)}주 ${o.price?'@'+f(o.price):''} ${o.ok?'✅':'❌'}<div class="mu">${esc(o.reason)} · ${esc(o.msg)}</div></div>`).join(''):'<div class="empty">오늘 주문이 없습니다</div>';
- if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}}}
+ if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}amUI();}}
 function render(){
  $('#status').textContent=S.status+(S.error&&!S.connected?' · '+S.error:'');
  $('#dot').className='dot '+(S.connected?'on':S.error?'err':'');
@@ -370,18 +383,19 @@ function tradeSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:SNA
   <div class="row" style="margin-top:8px"><button class="sec" data-act="posSheet" data-code="${code}">⚙ 이 종목 자동매도 설정</button></div>`:''}
  <h2 style="margin-top:16px">🎯 자동 매수 예약 ${pr?'<span class="badge live">예약 중</span>':''}</h2>
  ${pr?`<div class="warnbox" style="background:#16263f;color:#9cc2ff">현재 예약: ${esc(pr.text)}${pr.sell?'<br>매수 후 '+esc(pr.sell):''}</div>`:''}
- <label>매수 조건</label><select id="pl_type"><option value="dip">📉 몇 % 아래로 떨어지면 매수</option><option value="open">🔔 시초가 매수 (09:00)</option><option value="bull">🕯️ n분봉 양봉이면 매수</option></select>
+ <label>매수 조건</label><select id="pl_type"><option value="dip">📉 몇 % 아래로 떨어지면 매수</option><option value="open">🔔 시초가 매수 (09:00)</option><option value="bull">🕯️ n분봉 양봉이면 매수</option><option value="bear">🕯️ n분봉 음봉이면 매수</option><option value="touch">🎯 시가(시작가)에 오면 매수</option></select>
  <div id="pl_dip" class="grid2"><div><label>기준</label><select id="pl_basis"><option value="price">기준가 대비</option><option value="rate">전일 종가 대비 (등락률)</option></select></div><div><label>하락 % (예: 3)</label><input id="pl_pct" inputmode="decimal" value="3"></div>
   <div id="pl_basebox"><label>기준가(원) · 기본=현재가</label><input id="pl_base" inputmode="numeric" value="${r.price?Math.round(r.price):''}"></div><div><label>매수 목표가</label><div id="pl_tg" style="padding:10px 0;font-weight:700">-</div></div></div>
  <div id="pl_open" class="mu" style="display:none;margin-top:6px">평일 09:00 장 시작 직후 시장가로 매수합니다. 09:00 이후에 예약하면 <b>다음 거래일</b>에 실행됩니다.</div>
- <div id="pl_bull" class="grid2" style="display:none"><div><label>분봉</label>${minSel('pl_min',3)}</div><div><label>양봉 연속 개수 (1=양봉 1개)</label><input id="pl_cnt" inputmode="numeric" value="1"></div>
-  <div class="mu" style="grid-column:1/-1;margin-top:4px">예약한 뒤 새로 완성되는 봉부터 셉니다 (종가 &gt; 시가 = 양봉).</div></div>
+ <div id="pl_bull" class="grid2" style="display:none"><div><label>분봉</label>${minSel('pl_min',3)}</div><div><label id="pl_cntlb">양봉 연속 개수 (1=양봉 1개)</label><input id="pl_cnt" inputmode="numeric" value="1"></div>
+  <div class="mu" style="grid-column:1/-1;margin-top:4px">예약한 뒤 새로 완성되는 봉부터 셉니다 (종가 &gt; 시가 = 양봉, 종가 &lt; 시가 = 음봉).</div></div>
+ <div id="pl_touch" class="mu" style="display:none;margin-top:6px">오늘 <b>시가</b>를 키움에서 받아, 지금가가 시가보다 위면 시가까지 <b>내려올 때</b>, 아래면 <b>올라올 때</b> 시장가 매수합니다 (장 시작 후 예약).</div>
  <div class="grid2"><div><label>매수 금액(원)</label><input id="pl_amount" inputmode="numeric" value="${C.buy_amount}"></div><div></div></div>
  <div class="subbox"><label>🕯️ 매수 후 음봉 매도 (익절 +${C.take_profit}% / 손절 −${C.stop_loss}% 와 함께 적용)</label>
   <div class="grid2"><div><label>분봉 (끔=사용 안 함)</label>${minSel('pl_bear_min',C.bear_min||0,true)}</div><div><label>음봉 연속 개수</label><input id="pl_bear_cnt" inputmode="numeric" value="${C.bear_cnt||1}"></div></div></div>
  <div class="row" style="margin-top:10px"><button data-act="plAdd" data-code="${code}">${pr?'예약 바꾸기':'예약하기'}</button>${pr?`<button class="sec" data-act="plCancel" data-code="${code}">예약 취소</button>`:''}</div>
  <div class="row" style="margin-top:10px"><button class="sec" data-act="close">닫기</button></div>`);planUI();}
-function planUI(){const t=$('#pl_type');if(!t)return;const v=t.value;$('#pl_dip').style.display=v==='dip'?'':'none';$('#pl_open').style.display=v==='open'?'':'none';$('#pl_bull').style.display=v==='bull'?'':'none';
+function planUI(){const t=$('#pl_type');if(!t)return;const v=t.value;$('#pl_dip').style.display=v==='dip'?'':'none';$('#pl_open').style.display=v==='open'?'':'none';$('#pl_bull').style.display=(v==='bull'||v==='bear')?'':'none';$('#pl_touch').style.display=v==='touch'?'':'none';$('#pl_cntlb').textContent=v==='bear'?'음봉 연속 개수 (1=음봉 1개)':'양봉 연속 개수 (1=양봉 1개)';
  const rb=$('#pl_basis').value==='rate';$('#pl_basebox').style.visibility=rb?'hidden':'';const pct=parseFloat($('#pl_pct').value)||0,base=parseFloat(($('#pl_base').value||'').replace(/,/g,''))||0;
  $('#pl_tg').textContent=rb?`등락률 −${pct}% 이하`:(base&&pct>0?f(Math.floor(base*(1-pct/100)))+'원 이하':'-');}
 document.addEventListener('input',e=>{if(e.target.closest&&e.target.closest('#sheet')&&String(e.target.id).startsWith('pl_'))planUI();});
@@ -469,7 +483,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]
  case 'askYes':answer(true);break;
  case 'buyTg':b.classList.toggle('on');toast(b.classList.contains('on')?'💰 자동매수 켬 – 적용을 눌러 저장하세요':'자동매수 끔 – 적용을 눌러 저장하세요');break;
  case 'trToggle':{const on=!S.trade.enabled;if(on){const real=!S.trade.mock;if(!await ask(real?'⚠ 실전 계좌로 조건식 자동매수를 켭니다.\n실제 돈으로 주문이 나갑니다. 계속할까요?':'모의투자로 조건식 자동매수를 켤까요?',real?'실전 ON':'켜기'))break;}act('/api/trade/settings',{enabled:on});break;}
- case 'trSave':{const o={};['buy_amount','take_profit','stop_loss','trail_pct','max_buys','max_positions','max_loss','index_stop','index_sell','buy_start','buy_end','close_time','order_type','bear_min','bear_cnt'].forEach(k=>o[k]=$('#tr_'+k).value.trim());o.bot_only=$('#tr_bot_only').checked;o.real_ok=$('#tr_real_ok').checked;
+ case 'trSave':{const o={};['buy_amount','take_profit','stop_loss','trail_pct','max_buys','max_positions','max_loss','index_stop','index_sell','buy_start','buy_end','close_time','order_type','bear_min','bear_cnt','auto_mode','auto_pct','auto_min','auto_cnt','auto_wait'].forEach(k=>o[k]=$('#tr_'+k).value.trim());o.bot_only=$('#tr_bot_only').checked;o.real_ok=$('#tr_real_ok').checked;
    if(o.real_ok&&!S.trade_cfg.real_ok&&!await ask('실전 주문을 허용할까요?\n설정의 "모의투자 서버 사용"을 끄면 실제 계좌로 주문이 나갑니다.','허용'))break;
    const r=await act('/api/trade/settings',o);if(r&&r.ok)trFilled=false;break;}
  case 'trSell':{const p=S.trade.positions.find(x=>x.code===code);if(await ask(`${p?p.name:code} ${p?f(p.qty)+'주를 ':''}시장가로 매도할까요?`,'매도'))act('/api/trade/sell',{code});break;}
