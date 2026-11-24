@@ -78,6 +78,26 @@ public final class Engine {
         }
 
         Map<String, Object> call(String apiId, String path, Object body) throws Exception {
+            return call(apiId, path, body, null, null);
+        }
+
+        /** 연속조회: listKey 배열을 모두 이어 붙임 (최대 maxPages 페이지) */
+        Map<String, Object> callAll(String apiId, String path, Object body, String listKey, int maxPages) throws Exception {
+            String[] next = {"N", ""};
+            Map<String, Object> first = null;
+            List<Object> all = new ArrayList<>();
+            for (int i = 0; i < maxPages; i++) {
+                Map<String, Object> r = call(apiId, path, body, next, next);
+                if (first == null) first = r;
+                if (!"0".equals(Json.s(r.get("return_code")).trim())) return first == r ? r : first;
+                all.addAll(Json.arr(r.get(listKey)));
+                if (!"Y".equals(next[0]) || next[1].isEmpty()) break;
+            }
+            if (first != null) first.put(listKey, all);
+            return first == null ? new HashMap<>() : first;
+        }
+
+        private Map<String, Object> call(String apiId, String path, Object body, String[] cont, String[] out) throws Exception {
             for (int attempt = 0; attempt < 3; attempt++) {
                 synchronized (rlock) {
                     long wait = 340 - (System.currentTimeMillis() - last);
@@ -87,9 +107,14 @@ public final class Engine {
                 Map<String, String> h = new HashMap<>();
                 h.put("api-id", apiId);
                 h.put("authorization", "Bearer " + getToken(false));
-                h.put("cont-yn", "N");
-                h.put("next-key", "");
+                h.put("cont-yn", cont != null ? cont[0] : "N");
+                h.put("next-key", cont != null ? cont[1] : "");
                 Net.Resp r = Net.postJson(base + path, h, body);
+                if (out != null) {
+                    String cy = r.headers.get("cont-yn"), nk = r.headers.get("next-key");
+                    out[0] = cy == null ? "N" : cy.trim();
+                    out[1] = nk == null ? "" : nk.trim();
+                }
                 if (r.status == 429) {
                     Thread.sleep(1000L + attempt * 1000L);
                     continue;
@@ -209,9 +234,12 @@ public final class Engine {
     /** 보유 종목을 실시간 시세 감시에 고정 */
     public void watchHeld(String code, String name) {
         synchronized (lock) {
-            Watch w = (Watch) ensure(code)[0];
+            Object[] r = ensure(code);
+            Watch w = (Watch) r[0];
             if (w == null) return;
             w.held = true;
+            if (((Boolean) r[1] || w.name.equals(w.code) || w.price <= 0) && (name == null || name.isEmpty() || name.equals(code) || w.price <= 0))
+                infoQ.offer(new String[]{code, null});
             if (name != null && !name.isEmpty() && !name.equals(code)) {
                 w.name = name;
                 names.put(code, name);
@@ -1126,7 +1154,7 @@ public final class Engine {
     private void onTick(String code, double p, double r) {
         if (p <= 0) return;
         Trader tr = trader;
-        if (tr != null) tr.onTick(code, p);
+        if (tr != null) tr.onTick(code, p, r);
         Map<String, Object> a = eff(code);
         boolean mute = Json.b(a.get("mute"));
         double cd = ad(gAlerts, "cooldown_min");
@@ -1287,6 +1315,13 @@ public final class Engine {
         synchronized (lock) {
             Watch w = watch.get(code);
             return w == null ? 0 : w.price;
+        }
+    }
+
+    public double rateOf(String code) {
+        synchronized (lock) {
+            Watch w = watch.get(code);
+            return w == null ? 0 : w.rate;
         }
     }
 

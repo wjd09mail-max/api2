@@ -66,7 +66,7 @@ public final class Store {
                         "take_profit", 3.0, "stop_loss", 2.0, "trail_pct", 0.0,
                         "max_buys", 10.0, "max_positions", 5.0, "max_loss", 300000.0,
                         "buy_start", "09:05", "buy_end", "15:00", "close_time", "15:15",
-                        "index_stop", 1.5, "index_sell", 3.0, "bot_only", true,
+                        "index_stop", 1.5, "index_sell", 3.0, "bot_only", true, "bear_min", 0.0, "bear_cnt", 1.0,
                         "index_rules", new ArrayList<Object>()),
                 "ui", Json.map("port", 8080.0, "password", ""));
     }

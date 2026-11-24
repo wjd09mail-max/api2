@@ -24,12 +24,13 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.3.0";
+    public static final String VERSION = "3.4.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
     public final Trader trader;
     public final Account account;
+    public final Stocks stocks;
     public final Kakao.Notifier notifier;
     public final String token;          // 내장 웹서버 접근 토큰 (다른 앱의 접근 차단)
     private final String page;
@@ -43,6 +44,7 @@ public final class AppCore {
         this.engine = new Engine(cfg, kakao, new File(configFile.getAbsoluteFile().getParentFile(), "watch.json"));
         this.trader = new Trader(cfg, kakao, engine, new File(configFile.getAbsoluteFile().getParentFile(), "trade.json"));
         this.account = new Account(cfg, engine);
+        this.stocks = new Stocks(cfg, account, new File(configFile.getAbsoluteFile().getParentFile(), "stocks.json"));
         engine.setTrader(trader);
         this.page = pageHtml;
         byte[] b = new byte[18];
@@ -336,11 +338,20 @@ public final class AppCore {
                 return new Object[]{true, "조건식 저장됨. " + r[1]};
             }
             case "/api/trade/settings": {
-                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell"};
+                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell", "bear_min", "bear_cnt"};
+                if (b.containsKey("bear_min")) {
+                    int bm = (int) Json.d(Json.s(b.get("bear_min")), -1);
+                    if (bm != 0 && !Candles.validScope(bm)) return new Object[]{false, "음봉 매도 분봉은 끔/1/3/5/10/15/30/45/60 중 하나"};
+                }
+                if (b.containsKey("bear_cnt")) {
+                    int bc = (int) Json.d(Json.s(b.get("bear_cnt")), -1);
+                    if (bc < 1 || bc > 10) return new Object[]{false, "음봉 개수는 1~10"};
+                }
                 String[] bools = {"enabled", "real_ok", "bot_only"};
                 String[] times = {"buy_start", "buy_end", "close_time"};
                 synchronized (cfg.lock) {
                     Map<String, Object> tr = cfg.sec("trade");
+                    String bearOld = Json.d(tr.get("bear_min"), 0) + "/" + Json.d(tr.get("bear_cnt"), 1);
                     for (String k : nums) {
                         if (!b.containsKey(k)) continue;
                         double v = Json.d(Json.s(b.get(k)).replace(",", ""), -1);
@@ -354,6 +365,7 @@ public final class AppCore {
                         if (!v.isEmpty() && !v.matches("([01][0-9]|2[0-3]):[0-5][0-9]")) return new Object[]{false, "시각은 09:05 형식으로 입력하세요"};
                         tr.put(k, v);
                     }
+                    if (!bearOld.equals(Json.d(tr.get("bear_min"), 0) + "/" + Json.d(tr.get("bear_cnt"), 1))) tr.put("bear_at", (double) System.currentTimeMillis());
                     if (b.containsKey("order_type")) tr.put("order_type", "limit".equals(Json.s(b.get("order_type"))) ? "limit" : "market");
                     cfg.save();
                 }
@@ -393,6 +405,16 @@ public final class AppCore {
             case "/api/trade/refresh":
                 trader.refreshNow();
                 return new Object[]{true, "잔고 새로고침 요청"};
+            case "/api/plan/add":
+                return trader.addPlan(b);
+            case "/api/plan/cancel":
+                return trader.cancelPlan(Engine.cleanCode(b.get("code")));
+            case "/api/stocks/search":
+                return stocks.search(Json.s(b.get("q")), engine);
+            case "/api/stocks/refresh": {
+                String err = stocks.ensure(true);
+                return err.isEmpty() ? new Object[]{true, "종목 목록 " + stocks.size() + "개 받음"} : new Object[]{false, "종목 목록 받기 실패: " + err};
+            }
             case "/api/account/balance":
                 return account.balance();
             case "/api/account/diary":

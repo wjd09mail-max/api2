@@ -26,7 +26,7 @@ public final class Account {
         this.eng = eng;
     }
 
-    private synchronized Engine.Rest rest() throws Exception {
+    synchronized Engine.Rest restForQuery() throws Exception {
         Engine.Rest r = eng.rest();
         if (r != null && eng.running) return r;
         String ak = cfg.str("kiwoom", "appkey"), sk = cfg.str("kiwoom", "secretkey");
@@ -79,7 +79,7 @@ public final class Account {
     /** 국내잔고 */
     public Object[] balance() {
         try {
-            Engine.Rest rest = rest();
+            Engine.Rest rest = restForQuery();
             Map<String, Object> js = rest.call("kt00018", "/api/dostk/acnt", Json.map("qry_tp", "1", "dmst_stex_tp", "KRX"));
             if (!ok(js)) return new Object[]{false, "잔고 조회 실패: " + err(js)};
             List<Object> rows = new ArrayList<>();
@@ -157,7 +157,7 @@ public final class Account {
             String d = date == null ? "" : date.replace("-", "").trim();
             if (d.isEmpty()) d = today();
             if (!d.matches("\\d{8}")) return new Object[]{false, "날짜 형식이 올바르지 않습니다"};
-            Engine.Rest rest = rest();
+            Engine.Rest rest = restForQuery();
             Map<String, Object> js = rest.call("ka10170", "/api/dostk/acnt",
                     Json.map("base_dt", d, "ottks_tp", "all".equals(kind) ? "1" : "2", "ch_crd_tp", "0"));
             if (!ok(js)) return new Object[]{false, "매매일지 조회 실패: " + err(js)};

@@ -18,6 +18,7 @@ public final class Net {
         public int status;
         public Map<String, Object> json;
         public String raw;
+        public final java.util.Map<String, String> headers = new java.util.HashMap<>();
     }
 
     public static String form(Map<String, String> f) {
@@ -72,6 +73,12 @@ public final class Net {
         }
         Resp r = new Resp();
         r.status = c.getResponseCode();
+        try {
+            for (java.util.Map.Entry<String, java.util.List<String>> e : c.getHeaderFields().entrySet())
+                if (e.getKey() != null && e.getValue() != null && !e.getValue().isEmpty())
+                    r.headers.put(e.getKey().toLowerCase(java.util.Locale.ROOT), e.getValue().get(0));
+        } catch (RuntimeException ignored) {
+        }
         InputStream in = r.status >= 400 ? c.getErrorStream() : c.getInputStream();
         r.raw = in == null ? "" : readAll(in);
         c.disconnect();
