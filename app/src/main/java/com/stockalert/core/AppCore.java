@@ -24,11 +24,12 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.2.0";
+    public static final String VERSION = "3.3.0";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
     public final Trader trader;
+    public final Account account;
     public final Kakao.Notifier notifier;
     public final String token;          // 내장 웹서버 접근 토큰 (다른 앱의 접근 차단)
     private final String page;
@@ -41,6 +42,7 @@ public final class AppCore {
         this.kakao = new Kakao(cfg, notifier);
         this.engine = new Engine(cfg, kakao, new File(configFile.getAbsoluteFile().getParentFile(), "watch.json"));
         this.trader = new Trader(cfg, kakao, engine, new File(configFile.getAbsoluteFile().getParentFile(), "trade.json"));
+        this.account = new Account(cfg, engine);
         engine.setTrader(trader);
         this.page = pageHtml;
         byte[] b = new byte[18];
@@ -280,7 +282,9 @@ public final class AppCore {
                 Logx.add("요청 처리 오류: " + e, "error");
                 r = new Object[]{false, String.valueOf(e.getMessage())};
             }
-            return new Object[]{200, JSON, Json.stringify(Json.map("ok", r[0], "msg", r[1]))};
+            Map<String, Object> out = Json.map("ok", r[0], "msg", r[1]);
+            if (r.length > 2 && r[2] != null) out.put("data", r[2]);
+            return new Object[]{200, JSON, Json.stringify(out)};
         }
         return new Object[]{405, JSON, "{}"};
     }
@@ -389,6 +393,10 @@ public final class AppCore {
             case "/api/trade/refresh":
                 trader.refreshNow();
                 return new Object[]{true, "잔고 새로고침 요청"};
+            case "/api/account/balance":
+                return account.balance();
+            case "/api/account/diary":
+                return account.diary(Json.s(b.get("date")), Json.s(b.get("kind")));
             case "/api/search":
                 return engine.searchOnce(Json.s(b.get("seq")));
             case "/api/watch/remove":
