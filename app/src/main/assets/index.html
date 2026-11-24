@@ -144,8 +144,8 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
     <div><label>익절 (+%)</label><input id="tr_take_profit" inputmode="decimal"></div>
     <div><label>손절 (−%)</label><input id="tr_stop_loss" inputmode="decimal"></div>
     <div><label>트레일링: 고점 대비 하락(%) · 0=끔</label><input id="tr_trail_pct" inputmode="decimal"></div>
-    <div><label>🕯 음봉 매도: n분봉 · 끔=사용 안 함</label><select id="tr_bear_min"></select></div>
-    <div><label>🕯 음봉 연속 개수 (1=음봉 1개)</label><input id="tr_bear_cnt" inputmode="numeric"></div>
+    <div><label>🕯️ 음봉 매도: n분봉 · 끔=사용 안 함</label><select id="tr_bear_min"></select></div>
+    <div><label>🕯️ 음봉 연속 개수 (1=음봉 1개)</label><input id="tr_bear_cnt" inputmode="numeric"></div>
     <div><label>하루 최대 매수 횟수</label><input id="tr_max_buys" inputmode="numeric"></div>
     <div><label>최대 동시 보유 종목</label><input id="tr_max_positions" inputmode="numeric"></div>
     <div><label>일일 손실 한도(원) → 매수 정지</label><input id="tr_max_loss" inputmode="numeric"></div>
@@ -281,11 +281,11 @@ function renderTrade(){const T=S.trade,C=S.trade_cfg;const buySlots=(S.slots||[]
  <div class="mu" style="margin-top:6px">매수 조건식: ${buySlots.length?buySlots.map(n=>`<span class="badge live">${esc(n)}</span>`).join(''):'<b style="color:#ffc35a">없음 – 조건식 탭에서 💰를 켜세요</b>'} · 익절 +${C.take_profit}% · 손절 −${C.stop_loss}%${C.trail_pct>0?' · 트레일링 '+C.trail_pct+'%':''} · ${f(C.buy_amount)}원/종목</div>
  ${T.balance_err?`<div class="mu" style="color:#ffb020;margin-top:4px">잔고 조회: ${esc(T.balance_err)}</div>`:''}`;
  $('#trPos').innerHTML=T.positions.length?T.positions.map(p=>`<div class="st"><div class="l1" data-act="chart" data-code="${p.code}"><span class="nm link">${esc(p.name)}</span><span class="cd">${p.code}</span>${p.auto?'<span class="badge live">🤖자동매도</span>':'<span class="badge">자동매도 OFF</span>'}${p.custom?'<span class="badge">⚙개별</span>':''}${p.bot?'':'<span class="badge">직접보유</span>'}${p.pending?'<span class="badge off">매도중</span>':''}${p.wait?'<span class="badge">체결대기</span>':''}<span class="px">${f(p.last)}<small class="${cls(p.pnl)}">${sg(p.pnl)}</small></span></div>
-  <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}${p.bear?' · 🕯'+esc(p.bear):''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
+  <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}${p.bear?' · 🕯️'+esc(p.bear):''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
  $('#trRules').innerHTML=ruleList(T.rules);
  const PL=T.plans||[];$('#plCnt').textContent=PL.length?PL.length+'건':'';
  $('#trPlans').innerHTML=PL.length?PL.map(x=>`<div class="plan"><div class="l1"><span class="nm link" data-act="chart" data-code="${x.code}"><b>${esc(x.name||x.code)}</b></span><span class="cd mu">${x.code}</span>${x.price?`<span>${f(x.price)} <small class="${cls(x.rate)}">${sg(x.rate)}</small></span>`:''}<span class="bt"><button class="sec sm" data-act="tradeSheet" data-code="${x.code}">수정</button> <button class="sec sm" data-act="plCancel" data-code="${x.code}">취소</button></span></div>
-  <div class="mu" style="margin-top:3px">🎯 ${esc(x.text)}${x.sell?'<br>🕯 매수 후 '+esc(x.sell):''}</div></div>`).join(''):'<div class="empty">예약이 없습니다</div>';
+  <div class="mu" style="margin-top:3px">🎯 ${esc(x.text)}${x.sell?'<br>🕯️ 매수 후 '+esc(x.sell):''}</div></div>`).join(''):'<div class="empty">예약이 없습니다</div>';
  $('#trOrders').innerHTML=T.orders.length?T.orders.map(o=>`<div class="od"><span class="mu">${o.t}</span> <span class="s ${o.side==='매수'?'up':'dn'}">${o.side}</span><b>${esc(o.name||o.code)}</b> ${f(o.qty)}주 ${o.price?'@'+f(o.price):''} ${o.ok?'✅':'❌'}<div class="mu">${esc(o.reason)} · ${esc(o.msg)}</div></div>`).join(''):'<div class="empty">오늘 주문이 없습니다</div>';
  if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}}}
 function render(){
@@ -370,14 +370,14 @@ function tradeSheet(code){const r=S.watch.find(x=>x.code===code)||{code,name:SNA
   <div class="row" style="margin-top:8px"><button class="sec" data-act="posSheet" data-code="${code}">⚙ 이 종목 자동매도 설정</button></div>`:''}
  <h2 style="margin-top:16px">🎯 자동 매수 예약 ${pr?'<span class="badge live">예약 중</span>':''}</h2>
  ${pr?`<div class="warnbox" style="background:#16263f;color:#9cc2ff">현재 예약: ${esc(pr.text)}${pr.sell?'<br>매수 후 '+esc(pr.sell):''}</div>`:''}
- <label>매수 조건</label><select id="pl_type"><option value="dip">📉 몇 % 아래로 떨어지면 매수</option><option value="open">🔔 시초가 매수 (09:00)</option><option value="bull">🕯 n분봉 양봉이면 매수</option></select>
+ <label>매수 조건</label><select id="pl_type"><option value="dip">📉 몇 % 아래로 떨어지면 매수</option><option value="open">🔔 시초가 매수 (09:00)</option><option value="bull">🕯️ n분봉 양봉이면 매수</option></select>
  <div id="pl_dip" class="grid2"><div><label>기준</label><select id="pl_basis"><option value="price">기준가 대비</option><option value="rate">전일 종가 대비 (등락률)</option></select></div><div><label>하락 % (예: 3)</label><input id="pl_pct" inputmode="decimal" value="3"></div>
   <div id="pl_basebox"><label>기준가(원) · 기본=현재가</label><input id="pl_base" inputmode="numeric" value="${r.price?Math.round(r.price):''}"></div><div><label>매수 목표가</label><div id="pl_tg" style="padding:10px 0;font-weight:700">-</div></div></div>
  <div id="pl_open" class="mu" style="display:none;margin-top:6px">평일 09:00 장 시작 직후 시장가로 매수합니다. 09:00 이후에 예약하면 <b>다음 거래일</b>에 실행됩니다.</div>
  <div id="pl_bull" class="grid2" style="display:none"><div><label>분봉</label>${minSel('pl_min',3)}</div><div><label>양봉 연속 개수 (1=양봉 1개)</label><input id="pl_cnt" inputmode="numeric" value="1"></div>
   <div class="mu" style="grid-column:1/-1;margin-top:4px">예약한 뒤 새로 완성되는 봉부터 셉니다 (종가 &gt; 시가 = 양봉).</div></div>
  <div class="grid2"><div><label>매수 금액(원)</label><input id="pl_amount" inputmode="numeric" value="${C.buy_amount}"></div><div></div></div>
- <div class="subbox"><label>🕯 매수 후 음봉 매도 (익절 +${C.take_profit}% / 손절 −${C.stop_loss}% 와 함께 적용)</label>
+ <div class="subbox"><label>🕯️ 매수 후 음봉 매도 (익절 +${C.take_profit}% / 손절 −${C.stop_loss}% 와 함께 적용)</label>
   <div class="grid2"><div><label>분봉 (끔=사용 안 함)</label>${minSel('pl_bear_min',C.bear_min||0,true)}</div><div><label>음봉 연속 개수</label><input id="pl_bear_cnt" inputmode="numeric" value="${C.bear_cnt||1}"></div></div></div>
  <div class="row" style="margin-top:10px"><button data-act="plAdd" data-code="${code}">${pr?'예약 바꾸기':'예약하기'}</button>${pr?`<button class="sec" data-act="plCancel" data-code="${code}">예약 취소</button>`:''}</div>
  <div class="row" style="margin-top:10px"><button class="sec" data-act="close">닫기</button></div>`);planUI();}
@@ -405,8 +405,8 @@ function posSheet(code){const p=held(code);if(!p){toast('보유 종목이 아닙
  <div><label>트레일링 (고점 대비 −%)</label><input id="p_trail_pct" inputmode="decimal" placeholder="기본 ${C.trail_pct||'끔'}" value="${v(c.trail_pct)}"></div><div></div>
  <div><label>🎯 익절가(원) 이상</label><input id="p_tp_price" inputmode="numeric" placeholder="없음" value="${v(c.tp_price)}"></div>
  <div><label>⛔ 손절가(원) 이하</label><input id="p_sl_price" inputmode="numeric" placeholder="없음" value="${v(c.sl_price)}"></div>
- <div><label>🕯 음봉 매도 분봉 (기본 ${C.bear_min>0?C.bear_min+'분':'끔'})</label><select id="p_bear_min"><option value="">기본값</option><option value="0" ${c.bear_min===0?'selected':''}>끔</option>${MINS.map(m=>`<option value="${m}" ${c.bear_min===m?'selected':''}>${m}분봉</option>`).join('')}</select></div>
- <div><label>🕯 음봉 연속 개수</label><input id="p_bear_cnt" inputmode="numeric" placeholder="기본 ${C.bear_cnt||1}" value="${v(c.bear_cnt)}"></div></div>
+ <div><label>🕯️ 음봉 매도 분봉 (기본 ${C.bear_min>0?C.bear_min+'분':'끔'})</label><select id="p_bear_min"><option value="">기본값</option><option value="0" ${c.bear_min===0?'selected':''}>끔</option>${MINS.map(m=>`<option value="${m}" ${c.bear_min===m?'selected':''}>${m}분봉</option>`).join('')}</select></div>
+ <div><label>🕯️ 음봉 연속 개수</label><input id="p_bear_cnt" inputmode="numeric" placeholder="기본 ${C.bear_cnt||1}" value="${v(c.bear_cnt)}"></div></div>
  <div class="row" style="margin-top:12px"><button data-act="savePos" data-code="${code}">저장</button><button class="sec" data-act="resetPos" data-code="${code}">기본값으로</button></div>
  <h2 style="margin-top:14px">추가 매수 / 부분 매도</h2>
  <div class="grid2"><div><label>추가 매수 금액(원)</label><input id="p_add" inputmode="numeric" value="${C.buy_amount}"></div><div style="display:flex;align-items:flex-end"><button class="red" style="width:100%" data-act="addBuy" data-code="${code}">추가 매수(시장가)</button></div>
