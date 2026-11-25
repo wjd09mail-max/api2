@@ -14,16 +14,89 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find project
+      - name: Find project and fix gradle files
         id: proj
         run: |
-          find . -maxdepth 4 -not -path './.git*' | sort | head -80
-          F=$(find . -name settings.gradle -not -path './.git/*' | head -1)
-          if [ -z "$F" ]; then
-            echo "::error::settings.gradle 파일이 없습니다. StockAlertApp 폴더 안의 파일을 모두 업로드하세요."
-            exit 1
-          fi
-          echo "dir=$(dirname "$F")" >> "$GITHUB_OUTPUT"
+          T=$(find . -path '*/app/src/main/java/com/stockalert/core/Trader.java' -not -path './.git/*' | head -1)
+          if [ -z "$T" ]; then T=$(find . -path '*/app/src/main/AndroidManifest.xml' -not -path './.git/*' | head -1); fi
+          if [ -z "$T" ]; then echo "::error::app 폴더를 찾을 수 없습니다. 앱 소스를 업로드하세요."; exit 1; fi
+          D=$(echo "$T" | sed 's#/app/src/main/.*##')
+          VN=$(grep -o 'VERSION = "[^"]*"' "$D/app/src/main/java/com/stockalert/core/AppCore.java" | head -1 | sed 's/.*"\(.*\)"/\1/')
+          [ -z "$VN" ] && VN="3.0.0"
+          VC=$((100 + ${{ github.run_number }}))
+          echo "프로젝트 위치: $D / 버전 $VN ($VC)"
+          ls -la "$D" "$D/app"
+          cat > "$D/build.gradle" <<'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.7.3'
+              }
+          }
+          EOF
+          cat > "$D/settings.gradle" <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "StockAlert"
+          include ':app'
+          EOF
+          printf 'org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.useAndroidX=false\nandroid.nonTransitiveRClass=true\n' > "$D/gradle.properties"
+          cat > "$D/app/build.gradle" <<EOF
+          apply plugin: 'com.android.application'
+
+          android {
+              namespace 'com.stockalert'
+              compileSdk 35
+              defaultConfig {
+                  applicationId "com.stockalert"
+                  minSdk 26
+                  targetSdk 35
+                  versionCode $VC
+                  versionName "$VN"
+              }
+              signingConfigs {
+                  fixed {
+                      storeFile file('stockalert.keystore')
+                      storePassword 'stockalert'
+                      keyAlias 'stockalert'
+                      keyPassword 'stockalert'
+                      storeType 'pkcs12'
+                  }
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      signingConfig file('stockalert.keystore').exists() ? signingConfigs.fixed : signingConfigs.debug
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+                  encoding 'UTF-8'
+              }
+              lint {
+                  abortOnError false
+                  checkReleaseBuilds false
+              }
+          }
+          EOF
+          if [ ! -f "$D/app/stockalert.keystore" ]; then echo "::warning::app/stockalert.keystore 없음 → 임시 서명. 기존 앱을 삭제 후 설치해야 합니다."; fi
+          echo "dir=$D" >> "$GITHUB_OUTPUT"
+          echo "vn=$VN" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v5
         with:
@@ -33,7 +106,6 @@ jobs:
       - name: Prepare Android SDK (preinstalled)
         run: |
           SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          echo "ANDROID_HOME=$ANDROID_HOME"
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
 
@@ -43,21 +115,21 @@ jobs:
 
       - name: Build APK
         working-directory: ${{ steps.proj.outputs.dir }}
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: gradle assembleRelease --no-daemon
 
       - name: Rename APK
-        run: cp "${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/app-release.apk" StockAlert-v1.${{ github.run_number }}.apk
+        run: cp "${{ steps.proj.outputs.dir }}/app/build/outputs/apk/release/app-release.apk" StockAlert-v${{ steps.proj.outputs.vn }}-${{ github.run_number }}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: StockAlert-apk
-          path: StockAlert-v1.${{ github.run_number }}.apk
+          path: StockAlert-v*.apk
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.${{ github.run_number }}
-          name: StockAlert v1.${{ github.run_number }}
+          tag_name: v${{ steps.proj.outputs.vn }}-${{ github.run_number }}
+          name: StockAlert v${{ steps.proj.outputs.vn }} (#${{ github.run_number }})
           body: Download the .apk file below and install it on your phone.
-          files: StockAlert-v1.${{ github.run_number }}.apk
+          files: StockAlert-v*.apk
