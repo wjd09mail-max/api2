@@ -24,7 +24,8 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.5.0";
+    public static final String VERSION = "3.6.1";
+    public static final String BUILD_DATE = "2026-11-25";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
@@ -338,7 +339,11 @@ public final class AppCore {
                 return new Object[]{true, "조건식 저장됨. " + r[1]};
             }
             case "/api/trade/settings": {
-                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell", "bear_min", "bear_cnt", "auto_pct", "auto_min", "auto_cnt", "auto_wait"};
+                String[] nums = {"buy_amount", "take_profit", "stop_loss", "trail_pct", "max_buys", "max_positions", "max_loss", "index_stop", "index_sell", "bear_min", "bear_cnt", "auto_pct", "auto_min", "auto_cnt", "auto_wait", "sl_confirm", "tp_bear_min"};
+                if (b.containsKey("tp_bear_min")) {
+                    int tb = (int) Json.d(Json.s(b.get("tp_bear_min")), -1);
+                    if (tb != 0 && !Candles.validScope(tb)) return new Object[]{false, "익절 후 음봉 분봉은 1/3/5/10/15/30/45/60 중 하나"};
+                }
                 if (b.containsKey("auto_mode") && !java.util.Arrays.asList(Trader.AUTO_MODES).contains(Json.s(b.get("auto_mode"))))
                     return new Object[]{false, "자동매수 방식이 올바르지 않습니다"};
                 if (b.containsKey("auto_min") && !Candles.validScope((int) Json.d(Json.s(b.get("auto_min")), 0)))
@@ -573,6 +578,7 @@ public final class AppCore {
             s.put("watchlist", Json.s(cfg.data.get("watchlist")));
         }
         s.put("version", VERSION);
+        s.put("build_date", BUILD_DATE);
         s.put("alerts", cfg.copy("alerts"));
         s.put("trade", trader.snapshot());
         s.put("trade_cfg", cfg.copy("trade"));

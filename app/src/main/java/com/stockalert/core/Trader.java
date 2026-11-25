@@ -27,7 +27,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  */
 public final class Trader {
     static final TimeZone KST = TimeZone.getTimeZone("Asia/Seoul");
-    static final String[] POS_KEYS = {"take_profit", "stop_loss", "trail_pct", "tp_price", "sl_price", "bear_min", "bear_cnt"};
+    static final String[] POS_KEYS = {"take_profit", "stop_loss", "trail_pct", "tp_price", "sl_price", "bear_min", "bear_cnt", "sl_confirm", "tp_bear_min"};
 
     static final class Pos {
         String code, name;
@@ -35,6 +35,11 @@ public final class Trader {
         double avg, last, high;
         long buyAt, sellAt;
         boolean bot, sellPending, placeholder;
+        long slWaitAt;          // 손절 1분 확인 대기 시작 시각 (0=대기 아님)
+        double slLevel;         // 확인할 손절 기준가
+        String slWhy = "";
+        long tpArmedAt;         // 익절가 도달 → 음봉 기다리는 중 (0=아님)
+        String tpWhy = "";
     }
 
     private final Store cfg;
@@ -345,7 +350,7 @@ public final class Trader {
     }
 
     public void onTick(String code, double p) {
-        String reason = null;
+        String reason = null, notice = null;
         synchronized (lock) {
             Pos ps = pos.get(code);
             if (ps == null || ps.qty <= 0) return;
@@ -355,12 +360,44 @@ public final class Trader {
             double pnl = (p / ps.avg - 1) * 100;
             double tp = effv(code, "take_profit"), sl = effv(code, "stop_loss"), tr = effv(code, "trail_pct");
             double tpp = effv(code, "tp_price"), slp = effv(code, "sl_price");
-            if (tpp > 0 && p >= tpp) reason = "익절가 " + Engine.won(tpp) + " 도달 " + String.format(Locale.KOREA, "%+.2f%%", pnl);
-            else if (slp > 0 && p <= slp) reason = "손절가 " + Engine.won(slp) + " 도달 " + String.format(Locale.KOREA, "%+.2f%%", pnl);
-            else if (tp > 0 && pnl >= tp) reason = String.format(Locale.KOREA, "익절 %+.2f%%", pnl);
-            else if (sl > 0 && pnl <= -sl) reason = String.format(Locale.KOREA, "손절 %+.2f%%", pnl);
-            else if (tr > 0 && ps.high > ps.avg && pnl > 0 && (p / ps.high - 1) * 100 <= -tr)
+            String pct = String.format(Locale.KOREA, "%+.2f%%", pnl);
+            String tpHit = null, slHit = null;
+            double slLv = 0;
+            if (tpp > 0 && p >= tpp) tpHit = "익절가 " + Engine.won(tpp) + " 도달 " + pct;
+            else if (tp > 0 && pnl >= tp) tpHit = "익절 " + pct;
+            if (slp > 0 && p <= slp) {
+                slHit = "손절가 " + Engine.won(slp) + " 도달 " + pct;
+                slLv = slp;
+            } else if (sl > 0 && pnl <= -sl) {
+                slHit = "손절 " + pct;
+                slLv = Math.floor(ps.avg * (1 - sl / 100));
+            }
+            int tbm = (int) effv(code, "tp_bear_min");
+            if (tpHit != null && ps.tpArmedAt == 0 && tbm > 0 && Candles.validScope(tbm)) {
+                // 익절가 도달 → 바로 팔지 않고 n분봉 음봉이 나올 때 매도
+                ps.tpArmedAt = System.currentTimeMillis();
+                ps.tpWhy = tpHit;
+                notice = "🎯 익절 조건 도달 → " + tbm + "분봉 음봉 나오면 매도\n" + label(code, ps.name) + "\n" + tpHit;
+            } else if (tpHit != null && tbm <= 0) {
+                reason = tpHit;
+            } else if (slHit != null) {
+                if (effv(code, "sl_confirm") > 0) {
+                    if (ps.slWaitAt == 0) {               // 1분 뒤 다시 확인
+                        ps.slWaitAt = System.currentTimeMillis();
+                        ps.slLevel = slLv;
+                        ps.slWhy = slHit;
+                        notice = "⏳ 손절 조건 도달 → 1분 후 확인\n" + label(code, ps.name) + "\n" + slHit + " (기준 " + Engine.won(slLv) + "원)";
+                    }
+                } else {
+                    reason = slHit;
+                }
+            } else if (tr > 0 && ps.high > ps.avg && pnl > 0 && (p / ps.high - 1) * 100 <= -tr) {
                 reason = String.format(Locale.KOREA, "트레일링(고점 %s 대비 -%.1f%%) %+.2f%%", Engine.won(ps.high), tr, pnl);
+            }
+        }
+        if (notice != null) {
+            Logx.add(notice.replace("\n", " · "));
+            kakao.push(notice);
         }
         if (reason != null) sell(code, 0, reason, false);
     }
@@ -478,6 +515,9 @@ public final class Trader {
                             && Json.d(old.get("bear_cnt"), -1) == Json.d(c.get("bear_cnt"), -1) && old.get("bear_at") != null;
                     c.put("bear_at", same ? old.get("bear_at") : (Object) (double) System.currentTimeMillis());
                 }
+                double tbv = Json.d(c.get("tp_bear_min"), 0);
+                if (tbv > 0 && !Candles.validScope((int) tbv)) return new Object[]{false, "익절 후 음봉 분봉은 1/3/5/10/15/30/45/60 중 하나"};
+                if (c.containsKey("sl_confirm")) c.put("sl_confirm", Json.d(c.get("sl_confirm"), 0) > 0 ? 1.0 : 0.0);
                 double bmv = Json.d(c.get("bear_min"), 0);
                 if (bmv > 0 && !Candles.validScope((int) bmv)) return new Object[]{false, "음봉 매도 분봉은 1/3/5/10/15/30/45/60 중 하나"};
                 if (c.containsKey("bear_cnt") && (Json.d(c.get("bear_cnt"), 0) < 1 || Json.d(c.get("bear_cnt"), 0) > 10)) return new Object[]{false, "음봉 개수는 1~10"};
@@ -1051,7 +1091,33 @@ public final class Trader {
     }
 
     /** 타이머(1초)에서 호출: 시초가 예약, 하락 예약 보조 확인, 분봉 조회 일정 */
+    /** 손절 1분 확인: 1분 뒤 현재가가 손절 기준가보다 높으면 취소, 같거나 낮으면 매도 */
+    private void slConfirmTick(long now) {
+        List<Object[]> todo = new ArrayList<>();
+        synchronized (lock) {
+            for (Pos p : pos.values()) {
+                if (p.slWaitAt == 0 || now - p.slWaitAt < 60_000) continue;
+                double cur = eng.priceOf(p.code);
+                if (cur <= 0) cur = p.last;
+                todo.add(new Object[]{p.code, p.name, cur, p.slLevel, p.slWhy});
+                p.slWaitAt = 0;
+            }
+        }
+        for (Object[] x : todo) {
+            String code = (String) x[0], lb = label(code, (String) x[1]);
+            double cur = (Double) x[2], lv = (Double) x[3];
+            if (cur > lv) {
+                String m = "↩ 손절 취소 " + lb + ": 1분 후 " + Engine.won(cur) + "원 > 손절 기준 " + Engine.won(lv) + "원";
+                Logx.add(m);
+                kakao.push(m);
+            } else {
+                sell(code, 0, x[4] + " · 1분 확인 " + Engine.won(cur) + "≤" + Engine.won(lv), false);
+            }
+        }
+    }
+
     private void planTick(long now) {
+        slConfirmTick(now);
         List<Map<String, Object>> ps;
         synchronized (lock) {
             ps = new ArrayList<>(plans.values());
@@ -1095,6 +1161,8 @@ public final class Trader {
                 if (p.qty <= 0 || !autoOn(p)) continue;
                 int bm = (int) effv(p.code, "bear_min");
                 if (bm > 0 && Candles.validScope(bm)) need.put(p.code + "|" + bm, new int[]{bm});
+                int tb = (int) effv(p.code, "tp_bear_min");
+                if (p.tpArmedAt > 0 && tb > 0 && Candles.validScope(tb)) need.put(p.code + "|" + tb, new int[]{tb});
             }
         }
         if (!session || need.isEmpty() || !eng.connected) return;
@@ -1144,6 +1212,13 @@ public final class Trader {
             long since = Math.max((long) Json.d(pl.get("created"), 0), dayOpen);
             int got = Candles.streak(bars, up, since);
             if (got >= need) firePlan(code, min + "분봉 " + (up ? "양봉 " : "음봉 ") + got + "개" + (need > 1 ? " 연속" : ""), bars.get(0).close);
+        }
+        if (auto && p.tpArmedAt > 0 && (int) effv(code, "tp_bear_min") == min) {
+            if (Candles.streak(bars, false, p.tpArmedAt) >= 1) {
+                double pnl = p.avg > 0 ? (bars.get(0).close / p.avg - 1) * 100 : 0;
+                sell(code, 0, String.format(Locale.KOREA, "%s → %d분봉 음봉 %+.2f%%", p.tpWhy, min, pnl), false);
+                return;
+            }
         }
         if (auto && (int) bm == min) {
             long since = Math.max(Math.max(p.buyAt, dayOpen), bearAt(code));
@@ -1367,7 +1442,10 @@ public final class Trader {
                         "cfg", c == null ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(c),
                         "eff", Json.map("take_profit", effv(p.code, "take_profit"), "stop_loss", effv(p.code, "stop_loss"),
                                 "trail_pct", effv(p.code, "trail_pct"), "tp_price", effv(p.code, "tp_price"), "sl_price", effv(p.code, "sl_price"),
-                                "bear_min", effv(p.code, "bear_min"), "bear_cnt", effv(p.code, "bear_cnt")),
+                                "bear_min", effv(p.code, "bear_min"), "bear_cnt", effv(p.code, "bear_cnt"),
+                                "sl_confirm", effv(p.code, "sl_confirm"), "tp_bear_min", effv(p.code, "tp_bear_min")),
+                        "sl_wait", p.slWaitAt > 0 ? (double) Math.max(0, 60 - (System.currentTimeMillis() - p.slWaitAt) / 1000) : -1.0,
+                        "sl_level", p.slLevel, "tp_armed", p.tpArmedAt > 0,
                         "bear", bearText(effv(p.code, "bear_min"), Math.max(1, effv(p.code, "bear_cnt"))),
                         "pending", p.sellPending, "wait", p.placeholder));
             }

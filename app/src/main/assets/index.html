@@ -17,7 +17,12 @@ button{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 
 button.sec{background:#26324b}button.red{background:#c9474b}button.sm{padding:6px 10px;font-size:13px;border-radius:8px}
 button.ic{background:#1f2940;padding:6px 9px;font-size:15px;border-radius:8px}
 input,select,textarea{width:100%;background:#0d1320;color:var(--tx);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:15px}
-input[type=checkbox]{width:22px;height:22px;accent-color:var(--ac);flex:none}
+input[type=checkbox]{-webkit-appearance:none;appearance:none;width:24px;height:24px;min-width:24px;margin:0;border:2px solid #8a9bbd;border-radius:6px;background:#0b111c;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:pointer;padding:0;vertical-align:middle}
+input[type=checkbox]:checked{background:var(--ac);border-color:var(--ac)}
+input[type=checkbox]:checked::after{content:"";width:6px;height:12px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg);margin-top:-3px}
+.relcard .rv{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.relcard .rv b{font-size:18px}.relcard ul{margin:6px 0 0;padding-left:18px}.relcard li{margin:2px 0}
+.relcard details{margin-top:8px;border-top:1px solid #1d263a;padding-top:6px}.relcard summary{cursor:pointer;color:var(--mu)}
+.verwarn{background:#3a2a10;color:#ffcf7a;border-radius:8px;padding:8px 10px;margin-top:8px}
 label{display:block;font-size:13px;color:var(--mu);margin:8px 0 4px}
 .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}.row>.nf{flex:none}
 .slot{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.slot:last-child{border:0}
@@ -153,6 +158,8 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
     <div><label>익절 (+%)</label><input id="tr_take_profit" inputmode="decimal"></div>
     <div><label>손절 (−%)</label><input id="tr_stop_loss" inputmode="decimal"></div>
     <div><label>트레일링: 고점 대비 하락(%) · 0=끔</label><input id="tr_trail_pct" inputmode="decimal"></div>
+    <div style="grid-column:1/-1" class="sw"><input type="checkbox" id="tr_sl_confirm"><span>⏳ <b>손절 1분 확인</b> — 손절가에 닿으면 바로 팔지 않고 1분 뒤 손절가보다 높으면 취소, 같거나 낮으면 매도</span></div>
+    <div style="grid-column:1/-1" class="sw"><input type="checkbox" id="tr_tp_bear"><span>🎯 <b>익절 후 음봉 매도</b> — 익절가에 닿은 뒤 <select id="tr_tp_bear_min" style="width:auto;display:inline-block;padding:4px 6px"></select> 음봉이 나올 때만 매도</span></div>
     <div><label>🕯️ 음봉 매도: n분봉 · 끔=사용 안 함</label><select id="tr_bear_min"></select></div>
     <div><label>🕯️ 음봉 연속 개수 (1=음봉 1개)</label><input id="tr_bear_cnt" inputmode="numeric"></div>
     <div><label>하루 최대 매수 횟수</label><input id="tr_max_buys" inputmode="numeric"></div>
@@ -236,7 +243,7 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
   <div class="row" style="margin-top:10px"><button class="sec" onclick="location.href='app://battery'">🔋 절전 제외 허용</button><button class="red" data-act="exit">✖ 앱 완전 종료</button></div>
   <div class="mu" style="margin-top:8px" id="ver"></div></div>
 </section>
-<section class="tab" id="t-log"><div class="card"><h2>로그 <span class="sp"></span><label class="nf" style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showDebug" checked>원본 응답</label></h2><div class="log" id="log"></div></div></section>
+<section class="tab" id="t-log"><div class="card relcard" id="relCard"></div><div class="card"><h2>로그 <span class="sp"></span><label class="nf" style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="showDebug" checked>원본 응답</label></h2><div class="log" id="log"></div></div></section>
 </main>
 <nav><a href="#" data-t="watch" class="on"><i>📊</i>감시</a><a href="#" data-t="trade"><i>💰</i>매매</a><a href="#" data-t="acct"><i>🏦</i>계좌</a><a href="#" data-t="cond"><i>🔎</i>조건식</a><a href="#" data-t="alert"><i>🔔</i>알림</a><a href="#" data-t="set"><i>⚙️</i>설정</a><a href="#" data-t="log"><i>📜</i>로그</a></nav>
 <div id="mask"></div><div id="sheet"></div>
@@ -247,7 +254,7 @@ let PIN=new URLSearchParams(location.search).get('t')||'';
 const MANUAL='__manual__';
 const MINS=[1,3,5,10,15,30,45,60];const MINOPT='<option value="0">끔</option>'+MINS.map(m=>`<option value="${m}">${m}분봉</option>`).join('');
 const minSel=(id,v,off)=>`<select id="${id}">${off?'<option value="0">끔</option>':''}${MINS.map(m=>`<option value="${m}" ${+v===m?'selected':''}>${m}분봉</option>`).join('')}</select>`;
-$('#tr_bear_min').innerHTML=MINOPT;$('#tr_auto_min').innerHTML=MINS.map(m=>`<option value="${m}">${m}분봉</option>`).join('');
+$('#tr_bear_min').innerHTML=MINOPT;$('#tr_tp_bear_min').innerHTML=MINS.map(m=>`<option value="${m}">${m}분봉</option>`).join('');$('#tr_auto_min').innerHTML=MINS.map(m=>`<option value="${m}">${m}분봉</option>`).join('');
 const AMH={now:'💰 켠 조건식에 편입되면 바로 시장가 매수합니다.',dip:'편입된 가격에서 N% 내려오면 매수합니다 (눌림 매수).',bull:'편입 뒤 새로 완성된 n분봉이 양봉 N개 연속이면 매수합니다.',bear:'편입 뒤 새로 완성된 n분봉이 음봉 N개 연속이면 매수합니다 (조정 후 매수).',touch:'편입 때 오늘 시가보다 위면 시가까지 내려올 때, 아래면 시가까지 올라올 때 매수합니다.'};
 function amUI(){const m=$('#tr_auto_mode').value;document.querySelectorAll('#am_box .am').forEach(e=>e.style.display=e.classList.contains('am_'+m)?'':'none');
  $('#am_help').innerHTML=AMH[m]+(m!=='now'?' 편입 후 <b>대기 목록</b>(🎯 매수 예약)에 올라가며, 시간이 지나면 만료됩니다. 하루 매수 횟수·보유 한도 등은 매수 순간에 확인합니다.':'');}
@@ -294,18 +301,18 @@ function renderTrade(){const T=S.trade,C=S.trade_cfg;const buySlots=(S.slots||[]
  <div class="mu" style="margin-top:6px">매수 방식: <b>${({now:'편입 즉시',dip:'편입가 −'+C.auto_pct+'%',bull:C.auto_min+'분봉 양봉 '+C.auto_cnt+'개',bear:C.auto_min+'분봉 음봉 '+C.auto_cnt+'개',touch:'시가 도달'})[C.auto_mode||'now']}</b> · 매수 조건식: ${buySlots.length?buySlots.map(n=>`<span class="badge live">${esc(n)}</span>`).join(''):'<b style="color:#ffc35a">없음 – 조건식 탭에서 💰를 켜세요</b>'} · 익절 +${C.take_profit}% · 손절 −${C.stop_loss}%${C.trail_pct>0?' · 트레일링 '+C.trail_pct+'%':''} · ${f(C.buy_amount)}원/종목</div>
  ${T.balance_err?`<div class="mu" style="color:#ffb020;margin-top:4px">잔고 조회: ${esc(T.balance_err)}</div>`:''}`;
  $('#trPos').innerHTML=T.positions.length?T.positions.map(p=>`<div class="st"><div class="l1" data-act="chart" data-code="${p.code}"><span class="nm link">${esc(p.name)}</span><span class="cd">${p.code}</span>${p.auto?'<span class="badge live">🤖자동매도</span>':'<span class="badge">자동매도 OFF</span>'}${p.custom?'<span class="badge">⚙개별</span>':''}${p.bot?'':'<span class="badge">직접보유</span>'}${p.pending?'<span class="badge off">매도중</span>':''}${p.wait?'<span class="badge">체결대기</span>':''}<span class="px">${f(p.last)}<small class="${cls(p.pnl)}">${sg(p.pnl)}</small></span></div>
-  <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}${p.bear?' · 🕯️'+esc(p.bear):''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
+  <div class="l2"><span>${f(p.qty)}주 · 평단 ${f(p.avg)} · <b class="${cls(p.pnl)}">${(p.last-p.avg)*p.qty>=0?'+':''}${f((p.last-p.avg)*p.qty)}원</b>${p.auto?`<br>익절 ${p.eff.tp_price?f(p.eff.tp_price)+'원':'+'+p.eff.take_profit+'%'} · 손절 ${p.eff.sl_price?f(p.eff.sl_price)+'원':'−'+p.eff.stop_loss+'%'}${p.eff.trail_pct>0?' · 트레일링 '+p.eff.trail_pct+'%':''}${p.bear?' · 🕯️'+esc(p.bear):''}${p.eff.sl_confirm>0?' · ⏳손절 1분확인':''}${p.eff.tp_bear_min>0?' · 🎯익절 후 '+p.eff.tp_bear_min+'분 음봉':''}${p.sl_wait>=0?`<br><b style="color:var(--warn,#f5a623)">⏳ 손절 확인 중 ${p.sl_wait}초</b>`:''}${p.tp_armed?`<br><b style="color:#9cc2ff">🎯 익절 도달 · ${p.eff.tp_bear_min}분봉 음봉 대기</b>`:''}`:''}</span><span class="bt"><button class="sec sm" data-act="posSheet" data-code="${p.code}">⚙ 설정</button><button class="red sm" data-act="trSell" data-code="${p.code}">매도</button></span></div></div>`).join(''):'<div class="empty">보유 종목이 없습니다</div>';
  $('#trRules').innerHTML=ruleList(T.rules);
  const PL=T.plans||[];$('#plCnt').textContent=PL.length?PL.length+'건':'';
  $('#trPlans').innerHTML=PL.length?PL.map(x=>`<div class="plan"><div class="l1"><span class="nm link" data-act="chart" data-code="${x.code}"><b>${esc(x.name||x.code)}</b></span><span class="cd mu">${x.code}</span>${x.price?`<span>${f(x.price)} <small class="${cls(x.rate)}">${sg(x.rate)}</small></span>`:''}<span class="bt"><button class="sec sm" data-act="tradeSheet" data-code="${x.code}">수정</button> <button class="sec sm" data-act="plCancel" data-code="${x.code}">취소</button></span></div>
   <div class="mu" style="margin-top:3px">${x.auto?`<span class="badge off">🤖 자동 · ${x.until}까지</span> `:''}🎯 ${esc(x.text)}${x.sell?'<br>🕯️ 매수 후 '+esc(x.sell):''}</div></div>`).join(''):'<div class="empty">예약이 없습니다</div>';
  $('#trOrders').innerHTML=T.orders.length?T.orders.map(o=>`<div class="od"><span class="mu">${o.t}</span> <span class="s ${o.side==='매수'?'up':'dn'}">${o.side}</span><b>${esc(o.name||o.code)}</b> ${f(o.qty)}주 ${o.price?'@'+f(o.price):''} ${o.ok?'✅':'❌'}<div class="mu">${esc(o.reason)} · ${esc(o.msg)}</div></div>`).join(''):'<div class="empty">오늘 주문이 없습니다</div>';
- if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}amUI();}}
+ if(!trFilled){trFilled=true;for(const k in C){const el=$('#tr_'+k);if(!el)continue;if(el.type==='checkbox')el.checked=!!C[k];else el.value=C[k];}$('#tr_tp_bear').checked=C.tp_bear_min>0;$('#tr_tp_bear_min').value=C.tp_bear_min>0?C.tp_bear_min:3;amUI();}}
 function render(){
  $('#status').textContent=S.status+(S.error&&!S.connected?' · '+S.error:'');
  $('#dot').className='dot '+(S.connected?'on':S.error?'err':'');
  $('#btnStart').style.display=S.running?'none':'';$('#btnStop').style.display=S.running?'':'none';
- renderWatch();renderTrade();
+ renderWatch();renderTrade();renderRel();
  $('#alerts').innerHTML=S.alert_log.length?S.alert_log.slice(0,30).map(a=>`<div class="alert"><div class="t">${a.t}</div>${esc(a.msg)}</div>`).join(''):'<div class="empty">아직 알림이 없습니다</div>';
  const dbg=$('#showDebug').checked;
  $('#log').innerHTML=S.logs.slice().reverse().filter(l=>dbg||l.lv!=='debug').map(l=>`<div class="${l.lv}">[${l.t}] ${esc(l.msg)}</div>`).join('');
@@ -420,8 +427,14 @@ function posSheet(code){const p=held(code);if(!p){toast('보유 종목이 아닙
  <div><label>🎯 익절가(원) 이상</label><input id="p_tp_price" inputmode="numeric" placeholder="없음" value="${v(c.tp_price)}"></div>
  <div><label>⛔ 손절가(원) 이하</label><input id="p_sl_price" inputmode="numeric" placeholder="없음" value="${v(c.sl_price)}"></div>
  <div><label>🕯️ 음봉 매도 분봉 (기본 ${C.bear_min>0?C.bear_min+'분':'끔'})</label><select id="p_bear_min"><option value="">기본값</option><option value="0" ${c.bear_min===0?'selected':''}>끔</option>${MINS.map(m=>`<option value="${m}" ${c.bear_min===m?'selected':''}>${m}분봉</option>`).join('')}</select></div>
- <div><label>🕯️ 음봉 연속 개수</label><input id="p_bear_cnt" inputmode="numeric" placeholder="기본 ${C.bear_cnt||1}" value="${v(c.bear_cnt)}"></div></div>
+ <div><label>🕯️ 음봉 연속 개수</label><input id="p_bear_cnt" inputmode="numeric" placeholder="기본 ${C.bear_cnt||1}" value="${v(c.bear_cnt)}"></div>
+</div>
+ <div class="sw"><input type="checkbox" id="p_slc" ${p.eff.sl_confirm>0?'checked':''}><span>⏳ 손절 1분 확인 <span class="mu">(기본 ${C.sl_confirm>0?'켬':'끔'})</span><br><small class="mu">손절가 도달 1분 뒤 손절가보다 높으면 취소, 같거나 낮으면 매도</small></span></div>
+ <div class="sw"><input type="checkbox" id="p_tpb" ${p.eff.tp_bear_min>0?'checked':''}><span>🎯 익절 후 음봉 매도 <span class="mu">(기본 ${C.tp_bear_min>0?C.tp_bear_min+'분봉':'끔'})</span> ${minSel('p_tpb_min',p.eff.tp_bear_min||C.tp_bear_min||3).replace('<select','<select style="width:auto;display:inline-block;padding:4px 6px;margin-left:4px"')}<br><small class="mu">익절가 도달 뒤 이 분봉에서 음봉이 나올 때만 매도</small></span></div>
+ ${p.sl_wait>=0?`<div class="warnbox">⏳ 손절 확인 중 · ${p.sl_wait}초 후 ${f(p.sl_level)}원과 비교</div>`:''}${p.tp_armed?`<div class="warnbox" style="background:#16263f;color:#9cc2ff">🎯 익절 조건 도달 · ${p.eff.tp_bear_min}분봉 음봉 나오면 매도</div>`:''}
  <div class="row" style="margin-top:12px"><button data-act="savePos" data-code="${code}">저장</button><button class="sec" data-act="resetPos" data-code="${code}">기본값으로</button></div>
+ <div class="row" style="margin-top:8px"><button class="sec" data-act="posToDefault" data-code="${code}">⭐ 이 설정을 기본값으로 적용</button></div>
+ <div class="mu" style="margin-top:4px">입력한 익절·손절·트레일링·음봉 값과, 기본값과 다르게 체크한 손절 1분 확인·익절 후 음봉을 매매 탭 기본값으로 저장합니다 (빈칸·‘기본값’은 그대로). 익절가/손절가(원)는 종목마다 달라 기본값에 넣지 않습니다.</div>
  <h2 style="margin-top:14px">추가 매수 / 부분 매도</h2>
  <div class="grid2"><div><label>추가 매수 금액(원)</label><input id="p_add" inputmode="numeric" value="${C.buy_amount}"></div><div style="display:flex;align-items:flex-end"><button class="red" style="width:100%" data-act="addBuy" data-code="${code}">추가 매수(시장가)</button></div>
  <div><label>매도 수량(주) · 비우면 전량</label><input id="p_sellq" inputmode="numeric" placeholder="${f(p.avail||p.qty)}주"></div><div style="display:flex;align-items:flex-end"><button style="width:100%;background:#2d6cdf" data-act="posSell" data-code="${code}">시장가 매도</button></div></div>
@@ -454,6 +467,8 @@ function ixSheet(code){const i=S.indices.find(x=>x.code===code);const o=S.index_
  <h2 style="margin-top:16px">🏛 ${i.name} 연동 매매 규칙</h2>${ruleList(S.trade.rules.filter(r=>r.index===code))}
  <div class="row" style="margin-top:8px"><button class="sec" data-act="ruleSheet" data-ix="${code}">＋ 매매 규칙 추가</button></div>`);}
 const gv=id=>{const e=$('#'+id);return e?e.value.trim():'';};
+function pv(k){const C=S.trade_cfg;if(k==='sl_confirm'){const e=$('#p_slc');if(!e)return '';const v=e.checked?1:0;return v===(C.sl_confirm>0?1:0)?'':String(v);}
+ if(k==='tp_bear_min'){const e=$('#p_tpb');if(!e)return '';const v=e.checked?+$('#p_tpb_min').value:0;return v===(+C.tp_bear_min||0)?'':String(v);}return gv('p_'+k);}
 let _askRes=null;
 function ask(msg,okLabel){return new Promise(res=>{_askRes=res;openSheet(`<h3 style="margin-bottom:14px;line-height:1.5;white-space:pre-line">${esc(msg)}</h3><div class="row"><button class="red" data-act="askYes">${esc(okLabel||'확인')}</button><button class="sec" data-act="askNo">취소</button></div>`);});}
 function answer(v){const r=_askRes;_askRes=null;closeSheet();if(r)r(v);}
@@ -483,7 +498,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]
  case 'askYes':answer(true);break;
  case 'buyTg':b.classList.toggle('on');toast(b.classList.contains('on')?'💰 자동매수 켬 – 적용을 눌러 저장하세요':'자동매수 끔 – 적용을 눌러 저장하세요');break;
  case 'trToggle':{const on=!S.trade.enabled;if(on){const real=!S.trade.mock;if(!await ask(real?'⚠ 실전 계좌로 조건식 자동매수를 켭니다.\n실제 돈으로 주문이 나갑니다. 계속할까요?':'모의투자로 조건식 자동매수를 켤까요?',real?'실전 ON':'켜기'))break;}act('/api/trade/settings',{enabled:on});break;}
- case 'trSave':{const o={};['buy_amount','take_profit','stop_loss','trail_pct','max_buys','max_positions','max_loss','index_stop','index_sell','buy_start','buy_end','close_time','order_type','bear_min','bear_cnt','auto_mode','auto_pct','auto_min','auto_cnt','auto_wait'].forEach(k=>o[k]=$('#tr_'+k).value.trim());o.bot_only=$('#tr_bot_only').checked;o.real_ok=$('#tr_real_ok').checked;
+ case 'trSave':{const o={};['buy_amount','take_profit','stop_loss','trail_pct','max_buys','max_positions','max_loss','index_stop','index_sell','buy_start','buy_end','close_time','order_type','bear_min','bear_cnt','auto_mode','auto_pct','auto_min','auto_cnt','auto_wait'].forEach(k=>o[k]=$('#tr_'+k).value.trim());o.bot_only=$('#tr_bot_only').checked;o.sl_confirm=$('#tr_sl_confirm').checked?1:0;o.tp_bear_min=$('#tr_tp_bear').checked?$('#tr_tp_bear_min').value:0;o.real_ok=$('#tr_real_ok').checked;
    if(o.real_ok&&!S.trade_cfg.real_ok&&!await ask('실전 주문을 허용할까요?\n설정의 "모의투자 서버 사용"을 끄면 실제 계좌로 주문이 나갑니다.','허용'))break;
    const r=await act('/api/trade/settings',o);if(r&&r.ok)trFilled=false;break;}
  case 'trSell':{const p=S.trade.positions.find(x=>x.code===code);if(await ask(`${p?p.name:code} ${p?f(p.qty)+'주를 ':''}시장가로 매도할까요?`,'매도'))act('/api/trade/sell',{code});break;}
@@ -500,7 +515,13 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]
    act('/api/trade/buy',{code,qty,amount,order_type:type,price,manage});break;}
  case 'doSell':case 'posSell':{const q=gv(a==='doSell'?'s_qty':'p_sellq');const p=held(code);if(!await ask(`${p?p.name:code} ${q?q+'주':'전량'}을 시장가로 매도할까요?`,'매도'))break;act('/api/trade/sell',{code,qty:q});break;}
  case 'addBuy':{const amount=gv('p_add');const p=held(code);if(!await ask(`${p?p.name:code} ${f(+amount.replace(/,/g,''))}원어치를 시장가로 추가 매수할까요?`,'추가 매수'))break;act('/api/trade/buy',{code,amount,order_type:'market',manage:true});break;}
- case 'savePos':{const s={auto:$('#p_auto').checked};['take_profit','stop_loss','trail_pct','tp_price','sl_price','bear_min','bear_cnt'].forEach(k=>s[k]=gv('p_'+k));const r=await act('/api/trade/pos',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'savePos':{const s={auto:$('#p_auto').checked};['take_profit','stop_loss','trail_pct','tp_price','sl_price','bear_min','bear_cnt','sl_confirm','tp_bear_min'].forEach(k=>s[k]=pv(k));const r=await act('/api/trade/pos',{code,settings:s});if(r&&r.ok)closeSheet();break;}
+ case 'posToDefault':{const K={take_profit:'익절 %',stop_loss:'손절 %',trail_pct:'트레일링 %',bear_min:'음봉 매도 분봉',bear_cnt:'음봉 개수',sl_confirm:'손절 1분 확인',tp_bear_min:'익절 후 음봉'};const o={},txt=[];
+  for(const k in K){const v=pv(k);if(v===''||v==null)continue;o[k]=v;txt.push(K[k]+' '+(k==='sl_confirm'?(+v?'켬':'끔'):k==='tp_bear_min'||k==='bear_min'?(+v?v+'분봉':'끔'):v));}
+  if(!txt.length){toast('적용할 값이 없습니다 (빈칸은 기본값)');break;}
+  if(!await ask('매매 탭 기본값을 이렇게 바꿉니다:\n'+txt.join(' · ')+'\n\n자동매도 중인 모든 종목(개별 설정 없는 값)에 적용됩니다.','기본값으로 적용'))break;
+  const r=await act('/api/trade/settings',o);if(!r||!r.ok)break;
+  const s={auto:$('#p_auto').checked,tp_price:gv('p_tp_price'),sl_price:gv('p_sl_price')};await act('/api/trade/pos',{code,settings:s});trFilled=false;closeSheet();break;}
  case 'resetPos':{const r=await act('/api/trade/pos',{code,reset:true});if(r&&r.ok)closeSheet();break;} case 'trRefresh':act('/api/trade/refresh');break; case 'askNo':answer(false);break;
  case 'chart':{e.preventDefault();const ix=b.dataset.ix;location.href=ix?`https://m.stock.naver.com/domestic/index/${IXURL[ix]}/total`:`https://m.stock.naver.com/domestic/stock/${code}/total`;break;}
  case 'stockSheet':stockSheet(code);break; case 'ixSheet':ixSheet(code);break; case 'close':closeSheet();break;
@@ -557,6 +578,24 @@ function acDaySheet(code){const r=AC.day&&AC.day.rows.find(x=>x.code===code);if(
  <div class="row" style="margin-top:14px"><button class="sec" data-act="chart" data-code="${r.code}">📈 차트</button><button class="sec" data-act="close">닫기</button></div>`);}
 $('#acSort').onchange=renderBal;$('#acKind').onchange=acLoadDay;$('#acDate').onchange=acLoadDay;
 setInterval(()=>{if(acTabOn()&&AC.v==='bal'&&!document.hidden&&Date.now()-AC.last>10000)acLoadBal(true);},2000);
+/* ───── 버전 · 업데이트 내역 ───── */
+const UI_VER='3.6.1';
+const RELEASES=[
+ {v:'3.6.1',d:'2026-11-25',items:['로그 탭 맨 위에 버전·업데이트일·업데이트 내역 표시','체크박스를 어느 폰에서나 잘 보이게 다시 그림','종목별 ⚙ 설정의 손절 1분 확인 · 익절 후 음봉 매도를 체크박스로 변경','앱을 업데이트하면 이전 화면이 남지 않도록 화면 캐시 비움']},
+ {v:'3.6.0',d:'2026-11-25',items:['⏳ 손절 1분 확인: 손절가 도달 1분 뒤 손절가보다 높으면 취소, 같거나 낮으면 매도','🎯 익절 후 음봉 매도: 익절가 도달 뒤 n분봉 음봉이 나올 때만 매도','종목 ⚙ 설정에 ⭐ 이 설정을 기본값으로 적용 버튼']},
+ {v:'3.5.0',d:'2026-11-24',items:['조건식 자동매수 방식 선택: 편입 즉시 / 편입가 대비 N% 하락 / n분봉 양봉·음봉 N개 / 시가(시작가) 도달','편입 종목은 🤖 자동 대기로 올라가고 시간이 지나면 만료','매수 예약에 음봉 매수 · 시가 도달 매수 추가']},
+ {v:'3.4.0',d:'2026-11-24',items:['관심종목을 종목명·코드·초성으로 검색','🎯 매수 예약: 몇 % 하락 / 시초가 / n분봉 양봉 N개','🕯️ 음봉 매도: n분봉 음봉 N개 연속 시 매도']},
+ {v:'3.3.0',d:'2026-11-24',items:['🏦 계좌 탭: 국내잔고(총손익·종목별 평가) · 당일매매(손익·수수료·정산금액)']},
+ {v:'3.2.0',d:'2026-11-23',items:['🏛 지수 연동 매매 규칙 (지수 등락에 따라 전체 매도 · 일부 매도 · 매수 · 매수 중단)']},
+ {v:'3.1.0',d:'',items:['💰 매매 기능: 조건식 자동매수, 감시 종목 수동 매수·매도, 익절·손절·트레일링, 종목별 매도 설정','갤럭시 폴드5 전면·펼친 화면 맞춤']},
+ {v:'3.0.0',d:'',items:['안드로이드 앱 첫 버전: 조건식 실시간 감시, 폰·카톡 알림, 지수 감시, 백그라운드 실행','조건식별 분류·검색 횟수 누적·종목별 알림 · 네이버 차트 연결 · 검색 간격 선택']}];
+let relDone='';
+function renderRel(){const av=S.version||'?',bd=S.build_date||'';const key=av+'|'+bd;if(relDone===key)return;relDone=key;
+ const cur=RELEASES[0],li=r=>`<ul>${r.items.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+ $('#relCard').innerHTML=`<div class="rv"><b>📦 v${esc(av)}</b><span class="mu">업데이트 ${esc(bd||cur.d)}</span></div>
+  ${av!==UI_VER?`<div class="verwarn">⚠ 앱(v${esc(av)})과 화면(v${UI_VER}) 버전이 다릅니다. 앱을 완전히 종료(✖)한 뒤 다시 열어 주세요.</div>`:''}
+  <div style="margin-top:8px;font-weight:700">이번 업데이트</div>${li(cur)}
+  <details><summary>이전 업데이트 내역 (${RELEASES.length-1}개)</summary>${RELEASES.slice(1).map(r=>`<div style="margin-top:8px"><b>v${r.v}</b> <span class="mu">${r.d}</span>${li(r)}</div>`).join('')}</details>`;}
 async function refresh(){try{S=await api('/api/state');render();}catch(e){}}
 refresh();setInterval(refresh,1500);
 </script></body></html>

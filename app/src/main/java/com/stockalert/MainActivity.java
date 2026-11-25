@@ -42,6 +42,8 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);   // 업데이트 후 이전 화면이 남지 않게
+        web.clearCache(true);
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
