@@ -217,6 +217,38 @@ public final class Engine {
     private final Map<String, Ix> indices = new LinkedHashMap<>();
     private final Map<String, String> names = new ConcurrentHashMap<>();
     private final Map<String, Integer> hitMemo = new HashMap<>();               // "조건|종목" → 오늘 검색 횟수
+
+    /** 오늘 조건식 검출 기록 (리포트용, 감시목록에서 지워도 남음) */
+    public static final class Det {
+        public String cond, code;
+        public long first, last;
+        public int hits;
+        public double p0, r0, lo, hi;
+    }
+
+    private final Map<String, Det> dets = new LinkedHashMap<>();               // "조건|종목"
+    private final Map<String, List<Det>> detByCode = new HashMap<>();
+
+    public List<Det> detections() {
+        synchronized (lock) {
+            checkDay();
+            List<Det> out = new ArrayList<>();
+            for (Det d : dets.values()) {
+                Det c = new Det();
+                c.cond = d.cond; c.code = d.code; c.first = d.first; c.last = d.last; c.hits = d.hits;
+                c.p0 = d.p0; c.r0 = d.r0; c.lo = d.lo; c.hi = d.hi;
+                out.add(c);
+            }
+            return out;
+        }
+    }
+
+    private void detPut(Det d) {
+        dets.put(d.cond + "|" + d.code, d);
+        List<Det> l = detByCode.get(d.code);
+        if (l == null) detByCode.put(d.code, l = new ArrayList<>());
+        l.add(d);
+    }
     private String day = today();
     private final LinkedBlockingQueue<String[]> infoQ = new LinkedBlockingQueue<>();
     private String lastAuthErr = "";
@@ -862,6 +894,8 @@ public final class Engine {
         if (!t.equals(day)) {        // 날짜가 바뀌면 검색 횟수 초기화
             day = t;
             hitMemo.clear();
+            dets.clear();
+            detByCode.clear();
             for (Watch w : watch.values()) for (Src s : w.groups.values()) s.hits = 0;
         }
     }
@@ -895,6 +929,21 @@ public final class Engine {
                 s.hits++;
                 hitMemo.put(key, s.hits);
                 s.last = now;
+            }
+            if (count || entered) {
+                Det d = dets.get(key);
+                if (d == null) {
+                    d = new Det();
+                    d.cond = cond;
+                    d.code = code;
+                    d.first = now;
+                    double pp = p0 > 0 ? p0 : w.price;
+                    d.p0 = d.lo = d.hi = pp;
+                    d.r0 = p0 > 0 ? r0 : w.rate;
+                    detPut(d);
+                }
+                d.hits = s.hits;
+                d.last = s.last > 0 ? s.last : now;
             }
             s.active = true;
             if (entered && !wasActive) {
@@ -1161,6 +1210,15 @@ public final class Engine {
         double cd = ad(gAlerts, "cooldown_min");
         List<String> out = new ArrayList<>();
         synchronized (lock) {
+            List<Det> dl = detByCode.get(code);
+            if (dl != null) for (Det d : dl) {
+                if (d.p0 <= 0) {
+                    d.p0 = p;
+                    d.r0 = r;
+                }
+                d.lo = d.lo <= 0 ? p : Math.min(d.lo, p);
+                d.hi = Math.max(d.hi, p);
+            }
             Watch w = watch.get(code);
             if (w == null) return;
             w.price = p;
@@ -1355,7 +1413,11 @@ public final class Engine {
             }
             Map<String, Object> hm = new LinkedHashMap<>();
             for (Map.Entry<String, Integer> e : hitMemo.entrySet()) hm.put(e.getKey(), (double) e.getValue());
-            st = Json.map("day", day, "watch", rows, "hit_memo", hm);
+            List<Object> dj = new ArrayList<>();
+            for (Det d : dets.values())
+                dj.add(Json.map("cond", d.cond, "code", d.code, "first", (double) d.first, "last", (double) d.last, "hits", (double) d.hits,
+                        "p0", d.p0, "r0", d.r0, "lo", d.lo, "hi", d.hi));
+            st = Json.map("day", day, "watch", rows, "hit_memo", hm, "dets", dj);
         }
         try {
             File tmp = new File(stateFile.getPath() + ".tmp");
@@ -1381,6 +1443,21 @@ public final class Engine {
                 if (sameDay) {
                     for (Map.Entry<String, Object> e : Json.obj(st.get("hit_memo")).entrySet())
                         hitMemo.put(e.getKey(), (int) Json.d(e.getValue(), 0));
+                    for (Object o : Json.arr(st.get("dets"))) {
+                        Map<String, Object> m = Json.obj(o);
+                        Det d = new Det();
+                        d.cond = Json.s(m.get("cond"));
+                        d.code = Json.s(m.get("code"));
+                        if (d.cond.isEmpty() || d.code.isEmpty()) continue;
+                        d.first = (long) Json.d(m.get("first"), 0);
+                        d.last = (long) Json.d(m.get("last"), 0);
+                        d.hits = (int) Json.d(m.get("hits"), 0);
+                        d.p0 = Json.d(m.get("p0"), 0);
+                        d.r0 = Json.d(m.get("r0"), 0);
+                        d.lo = Json.d(m.get("lo"), 0);
+                        d.hi = Json.d(m.get("hi"), 0);
+                        detPut(d);
+                    }
                 }
                 for (Object o : Json.arr(st.get("watch"))) {
                     Map<String, Object> m = Json.obj(o);

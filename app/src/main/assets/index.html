@@ -133,7 +133,10 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
 <section class="tab on" id="t-watch">
   <div class="card"><h2>🏛 지수 <span class="sp"></span><span class="mu">기본 감시 · 🔔로 설정</span></h2><div id="ixs"></div></div>
   <div id="groups"></div>
-  <div class="card"><h2>최근 알림</h2><div id="alerts"></div></div>
+  <div class="card"><h2>📑 조건검색 검출 리포트 <span class="sp"></span></h2>
+   <div class="mu">오늘 조건식별로 검출된 종목: 조건명 · 종목명 · 검출시점 · 검출시 등락률 · 검출후 등락률 · 금일 최저/최고(%) <span id="detCnt"></span></div>
+   <div class="row" style="margin-top:8px"><button data-act="report" data-kind="cond" data-how="open">📥 엑셀 저장·열기</button><button class="sec" data-act="report" data-kind="cond" data-how="share">📤 공유</button></div></div>
+  <div class="card"><h2>최근 알림 <span class="sp"></span><button class="sec sm" data-act="clearAlerts">🗑 전체 지우기</button></h2><div id="alerts"></div></div>
 </section>
 <section class="tab" id="t-trade">
   <div class="card" id="trStatus"></div>
@@ -187,6 +190,9 @@ code{background:#0b1220;padding:1px 5px;border-radius:5px;font-size:12px;word-br
     <div class="card"><div class="ameta"><input type="date" id="acDate"><select id="acKind"><option value="sell">당일매도</option><option value="all">매수+매도</option></select><button class="sm" data-act="acDay">조회</button></div>
     <div class="acs" id="acDaySum"></div></div>
     <div class="card"><div id="acDayTb"></div><div class="mu" id="acDayT" style="margin-top:6px;text-align:right"></div></div>
+    <div class="card"><h2>📑 금일 거래내역 (엑셀)</h2>
+     <div class="mu">검출 조건명 · 종목명 · 매수금액 · 손익금액 · 수익률 · 매수/매도 시간 · 매수후 최저/최고(%) · 주문 내역</div>
+     <div class="row" style="margin-top:8px"><button data-act="report" data-kind="trades" data-how="open">📥 엑셀 저장·열기</button><button class="sec" data-act="report" data-kind="trades" data-how="share">📤 공유</button></div></div>
   </div>
 </section>
 <section class="tab" id="t-cond">
@@ -476,6 +482,10 @@ const IXURL={'001':'KOSPI','101':'KOSDAQ'};
 
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,code=b.dataset.code;
  switch(a){
+ case 'clearAlerts':{if(!await ask('최근 알림을 모두 지울까요?','전체 지우기'))break;await act('/api/alert_log/clear',{});break;}
+ case 'report':{const kind=b.dataset.kind,how=b.dataset.how;
+  if(/; wv\)/.test(navigator.userAgent)){location.href=`app://save?kind=${kind}&act=${how}`;break;}
+  toast('엑셀 만드는 중…');const x=document.createElement('a');x.href=`/api/report/${kind}.xlsx?t=${encodeURIComponent(PIN)}`;x.download='';document.body.appendChild(x);x.click();x.remove();break;}
  case 'sSearch':stockSearch();break;
  case 'plCancel':{if(!await ask('이 종목의 매수 예약을 취소할까요?','예약 취소'))break;const r=await act('/api/plan/cancel',{code});if(r&&r.ok)closeSheet();break;}
  case 'plAdd':{const o={code,name:SNAME[code]||((S.watch.find(x=>x.code===code)||{}).name)||'',type:$('#pl_type').value,basis:$('#pl_basis').value,pct:$('#pl_pct').value,base:$('#pl_base').value,min:$('#pl_min').value,cnt:$('#pl_cnt').value,amount:$('#pl_amount').value,bear_min:$('#pl_bear_min').value,bear_cnt:$('#pl_bear_cnt').value};
@@ -579,8 +589,9 @@ function acDaySheet(code){const r=AC.day&&AC.day.rows.find(x=>x.code===code);if(
 $('#acSort').onchange=renderBal;$('#acKind').onchange=acLoadDay;$('#acDate').onchange=acLoadDay;
 setInterval(()=>{if(acTabOn()&&AC.v==='bal'&&!document.hidden&&Date.now()-AC.last>10000)acLoadBal(true);},2000);
 /* ───── 버전 · 업데이트 내역 ───── */
-const UI_VER='3.6.1';
+const UI_VER='3.7.0';
 const RELEASES=[
+ {v:'3.7.0',d:'2026-11-26',items:['최근 알림 🗑 전체 지우기','📑 조건검색 검출 리포트 엑셀: 조건명·종목명·검출시점·검출시/검출후 등락률·금일 최저/최고(%) + 조건식별 요약','📑 금일 거래내역 엑셀 (계좌 탭 당일매매): 조건명·매수금액·손익·수익률·매수/매도 시간·매수후 최저/최고(%) + 주문 내역','엑셀은 휴대폰 다운로드/StockAlert 폴더에 저장되고 바로 열거나 카톡 등으로 공유']},
  {v:'3.6.1',d:'2026-11-25',items:['로그 탭 맨 위에 버전·업데이트일·업데이트 내역 표시','체크박스를 어느 폰에서나 잘 보이게 다시 그림','종목별 ⚙ 설정의 손절 1분 확인 · 익절 후 음봉 매도를 체크박스로 변경','앱을 업데이트하면 이전 화면이 남지 않도록 화면 캐시 비움']},
  {v:'3.6.0',d:'2026-11-25',items:['⏳ 손절 1분 확인: 손절가 도달 1분 뒤 손절가보다 높으면 취소, 같거나 낮으면 매도','🎯 익절 후 음봉 매도: 익절가 도달 뒤 n분봉 음봉이 나올 때만 매도','종목 ⚙ 설정에 ⭐ 이 설정을 기본값으로 적용 버튼']},
  {v:'3.5.0',d:'2026-11-24',items:['조건식 자동매수 방식 선택: 편입 즉시 / 편입가 대비 N% 하락 / n분봉 양봉·음봉 N개 / 시가(시작가) 도달','편입 종목은 🤖 자동 대기로 올라가고 시간이 지나면 만료','매수 예약에 음봉 매수 · 시가 도달 매수 추가']},

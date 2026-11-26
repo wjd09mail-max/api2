@@ -61,6 +61,7 @@ public final class Trader {
     private final java.util.ArrayDeque<double[]>[] ixHist = newHist();
     private final Map<String, String> ruleFired = new LinkedHashMap<>();       // 규칙 id → 실행한 날짜
     private final Map<String, Map<String, Object>> plans = new LinkedHashMap<>();   // 종목별 매수 예약
+    private final Map<String, Map<String, Object>> tradeRec = new LinkedHashMap<>(); // 오늘 앱이 낸 매매 기록 (리포트용)
     private final Map<String, Long> candlePolled = new HashMap<>();                 // "code|분" → 마지막 조회한 봉 경계
     private final Map<String, Long> planWarned = new HashMap<>();
     private final Set<String> planBusy = new HashSet<>();
@@ -160,6 +161,7 @@ public final class Trader {
                 closedToday = false;
                 liquidated = false;
                 orders.clear();
+                tradeRec.clear();
             }
             save();
         }
@@ -300,6 +302,20 @@ public final class Trader {
                 return;
             }
             synchronized (lock) {
+                Map<String, Object> tr = tradeRec.get(code);
+                if (tr == null) {
+                    String cond = "";
+                    java.util.regex.Matcher mm = java.util.regex.Pattern.compile("^\\[(.+?)\\]").matcher(reason == null ? "" : reason);
+                    if (mm.find()) cond = mm.group(1);
+                    tr = Json.map("code", code, "name", name, "cond", cond, "buy_t", hms(), "buy_ms", (double) System.currentTimeMillis(),
+                            "ref", ref, "lo", ref, "hi", ref, "buy_reason", reason, "sell_t", "", "sell_reason", "");
+                    tradeRec.put(code, tr);
+                } else if (!Json.s(tr.get("sell_t")).isEmpty() && "".equals(Json.s(tr.get("rebuy")))) {
+                    tr.put("rebuy", hms());
+                }
+                tr.put("open", true);
+                tr.put("buy_qty", Json.d(tr.get("buy_qty"), 0) + qty);
+                tr.put("buy_amt", Json.d(tr.get("buy_amt"), 0) + qty * ref);
                 if (auto) {
                     buysToday++;
                     boughtToday.add(code);
@@ -351,6 +367,14 @@ public final class Trader {
 
     public void onTick(String code, double p) {
         String reason = null, notice = null;
+        synchronized (lock) {
+            Map<String, Object> tr = tradeRec.get(code);
+            if (tr != null && Json.b(tr.get("open")) && p > 0) {
+                double lo = Json.d(tr.get("lo"), 0), hi = Json.d(tr.get("hi"), 0);
+                if (lo <= 0 || p < lo) tr.put("lo", p);
+                if (p > hi) tr.put("hi", p);
+            }
+        }
         synchronized (lock) {
             Pos ps = pos.get(code);
             if (ps == null || ps.qty <= 0) return;
@@ -454,6 +478,16 @@ public final class Trader {
             }
             double total;
             synchronized (lock) {
+                Map<String, Object> tr = tradeRec.get(code);
+                if (tr == null) {
+                    tr = Json.map("code", code, "name", p.name, "cond", "", "buy_t", "", "ref", p.avg, "lo", 0.0, "hi", 0.0, "buy_reason", "");
+                    tradeRec.put(code, tr);
+                }
+                tr.put("sell_t", hms());
+                tr.put("sell_reason", reason);
+                tr.put("sell_qty", Json.d(tr.get("sell_qty"), 0) + qty);
+                tr.put("sell_amt", Json.d(tr.get("sell_amt"), 0) + qty * p.last);
+                if (qty >= p.qty) tr.put("open", false);
                 if (bot) realized += est;
                 total = realized;
                 if (qty < p.qty) {                       // 부분 매도: 나머지는 계속 관리
@@ -1230,6 +1264,28 @@ public final class Trader {
         }
     }
 
+    /** 리포트용: 오늘 매매 기록 / 주문 내역 복사본 */
+    public List<Map<String, Object>> tradeRecords() {
+        synchronized (lock) {
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (Map<String, Object> m : tradeRec.values()) {
+                Map<String, Object> c = new LinkedHashMap<>(m);
+                Pos p = pos.get(Json.s(m.get("code")));
+                if (p != null && p.avg > 0) c.put("avg", p.avg);
+                out.add(c);
+            }
+            return out;
+        }
+    }
+
+    public List<Map<String, Object>> orderList() {
+        synchronized (lock) {
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (Object o : orders) out.add(new LinkedHashMap<>(Json.obj(o)));
+            return out;
+        }
+    }
+
     /** 음봉 매도 설정을 켠 시각 (그 뒤에 완성된 봉부터 셈) */
     private long bearAt(String code) {
         synchronized (lock) {
@@ -1377,7 +1433,7 @@ public final class Trader {
             st = Json.map("day", day, "owned", new ArrayList<Object>(owned), "pos_cfg", new LinkedHashMap<String, Object>(posCfg),
                     "bought_today", new ArrayList<Object>(boughtToday),
                     "buys_today", (double) buysToday, "realized", realized, "halted", halted, "halt_reason", haltReason,
-                    "closed_today", closedToday, "liquidated", liquidated, "orders", new ArrayList<Object>(orders),
+                    "closed_today", closedToday, "liquidated", liquidated, "orders", new ArrayList<Object>(orders), "trade_rec", new ArrayList<Object>(tradeRec.values()),
                     "rule_fired", new LinkedHashMap<String, Object>(ruleFired), "plans", new ArrayList<Object>(plans.values()));
             st = Json.obj(Json.copy(st));
         }
@@ -1418,6 +1474,10 @@ public final class Trader {
                     closedToday = Json.b(st.get("closed_today"));
                     liquidated = Json.b(st.get("liquidated"));
                     for (Object o : Json.arr(st.get("orders"))) orders.add(Json.obj(o));
+                    for (Object o : Json.arr(st.get("trade_rec"))) {
+                        Map<String, Object> m = Json.obj(o);
+                        if (!Json.s(m.get("code")).isEmpty()) tradeRec.put(Json.s(m.get("code")), m);
+                    }
                 }
             }
         } catch (Exception e) {

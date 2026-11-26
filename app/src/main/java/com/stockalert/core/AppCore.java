@@ -24,14 +24,15 @@ import java.util.Map;
 
 /** 앱 본체: 설정 + 카카오 + 엔진 + 내장 웹서버(127.0.0.1) */
 public final class AppCore {
-    public static final String VERSION = "3.6.1";
-    public static final String BUILD_DATE = "2026-11-25";
+    public static final String VERSION = "3.7.0";
+    public static final String BUILD_DATE = "2026-11-26";
     public final Store cfg;
     public final Kakao kakao;
     public final Engine engine;
     public final Trader trader;
     public final Account account;
     public final Stocks stocks;
+    public final Reports reports;
     public final Kakao.Notifier notifier;
     public final String token;          // 내장 웹서버 접근 토큰 (다른 앱의 접근 차단)
     private final String page;
@@ -45,6 +46,7 @@ public final class AppCore {
         this.engine = new Engine(cfg, kakao, new File(configFile.getAbsoluteFile().getParentFile(), "watch.json"));
         this.trader = new Trader(cfg, kakao, engine, new File(configFile.getAbsoluteFile().getParentFile(), "trade.json"));
         this.account = new Account(cfg, engine);
+        this.reports = new Reports(engine, trader, account);
         this.stocks = new Stocks(cfg, account, new File(configFile.getAbsoluteFile().getParentFile(), "stocks.json"));
         engine.setTrader(trader);
         this.page = pageHtml;
@@ -218,6 +220,7 @@ public final class AppCore {
             hb.append("Content-Length: ").append(data.length).append("\r\n");
             hb.append("Cache-Control: no-store\r\nConnection: close\r\n");
             if (resp.length > 3 && resp[3] != null) hb.append("Location: ").append(resp[3]).append("\r\n");
+            if (resp.length > 4 && resp[4] != null) hb.append("Content-Disposition: ").append(resp[4]).append("\r\n");
             hb.append("\r\n");
             out.write(hb.toString().getBytes(StandardCharsets.UTF_8));
             out.write(data);
@@ -233,6 +236,13 @@ public final class AppCore {
     }
 
     private static final String JSON = "application/json; charset=utf-8";
+    static final String XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    public static final String XLSX_MIME = XLSX;
+
+    /** 엑셀 리포트 {ok, msg, bytes, 파일명} — kind: cond(조건검색 검출) / trades(금일 거래내역) */
+    public Object[] report(String kind) {
+        return "trades".equals(kind) ? reports.tradeReport() : reports.condReport();
+    }
     private static final String HTML = "text/html; charset=utf-8";
 
     private boolean authed(String given) {
@@ -242,6 +252,21 @@ public final class AppCore {
     private Object[] route(String method, String path, Map<String, String> q, Map<String, String> headers, String body) {
         if ("GET".equals(method)) {
             if ("/".equals(path) || "/index.html".equals(path)) return new Object[]{200, HTML, page};
+            if (path.startsWith("/api/report/")) {
+                String t = headers.get("x-pin");
+                if (t == null) t = q.get("t");
+                if (!authed(t)) return new Object[]{401, JSON, "{\"error\":\"PIN\"}"};
+                Object[] r = report(path.contains("trade") ? "trades" : "cond");
+                if (!(Boolean) r[0]) return new Object[]{500, "text/plain; charset=utf-8", String.valueOf(r[1])};
+                String fn = (String) r[3];
+                String enc;
+                try {
+                    enc = java.net.URLEncoder.encode(fn, "UTF-8").replace("+", "%20");
+                } catch (Exception e) {
+                    enc = "report.xlsx";
+                }
+                return new Object[]{200, XLSX, r[2], null, "attachment; filename=\"report.xlsx\"; filename*=UTF-8''" + enc};
+            }
             if ("/api/state".equals(path)) {
                 if (!authed(headers.get("x-pin"))) return new Object[]{401, JSON, "{\"error\":\"PIN\"}"};
                 return new Object[]{200, JSON, Json.stringify(state())};
@@ -419,6 +444,9 @@ public final class AppCore {
             case "/api/trade/refresh":
                 trader.refreshNow();
                 return new Object[]{true, "잔고 새로고침 요청"};
+            case "/api/alert_log/clear":
+                Logx.clearAlerts();
+                return new Object[]{true, "최근 알림을 모두 지웠습니다"};
             case "/api/plan/add":
                 return trader.addPlan(b);
             case "/api/plan/cancel":

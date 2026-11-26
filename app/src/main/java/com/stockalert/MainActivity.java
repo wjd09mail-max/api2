@@ -2,6 +2,7 @@ package com.stockalert;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -9,8 +10,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Environment;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -83,6 +86,8 @@ public class MainActivity extends Activity {
         if ("app".equals(scheme)) {
             if ("battery".equals(host)) {
                 requestBatteryExemption(true);
+            } else if ("save".equals(host)) {
+                saveReport(u.getQueryParameter("kind"), u.getQueryParameter("act"));
             } else if ("exit".equals(host)) {
                 Intent stop = new Intent(this, AlertService.class);
                 stop.setAction(AlertService.ACTION_STOP);
@@ -103,6 +108,72 @@ public class MainActivity extends Activity {
             return true;
         }
         return true;
+    }
+
+    /** 엑셀 리포트 → 휴대폰 '다운로드/StockAlert' 폴더에 저장 후 열기 또는 공유 */
+    private void saveReport(String kind, String act) {
+        AppCore c = AlertService.core();
+        if (c == null) return;
+        Toast.makeText(this, "엑셀 파일을 만드는 중… (종목이 많으면 최대 1분)", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            Object[] r = c.report(kind);
+            if (!(Boolean) r[0]) {
+                handler.post(() -> Toast.makeText(this, String.valueOf(r[1]), Toast.LENGTH_LONG).show());
+                return;
+            }
+            byte[] data = (byte[]) r[2];
+            String name = (String) r[3];
+            Uri uri = null;
+            String where;
+            try {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, AppCore.XLSX_MIME);
+                    v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/StockAlert");
+                    uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) throw new Exception("저장 위치를 만들 수 없습니다");
+                    try (java.io.OutputStream o = getContentResolver().openOutputStream(uri)) {
+                        o.write(data);
+                    }
+                    where = "다운로드/StockAlert/" + name;
+                } else {
+                    java.io.File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                    java.io.File f = new java.io.File(dir, name);
+                    try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) {
+                        o.write(data);
+                    }
+                    where = f.getPath();
+                }
+            } catch (Exception e) {
+                handler.post(() -> Toast.makeText(this, "저장 실패: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                return;
+            }
+            final Uri fu = uri;
+            final String fw = where;
+            handler.post(() -> {
+                Toast.makeText(this, "💾 저장됨: " + fw, Toast.LENGTH_LONG).show();
+                if (fu == null) return;
+                try {
+                    Intent i;
+                    if ("share".equals(act)) {
+                        i = new Intent(Intent.ACTION_SEND);
+                        i.setType(AppCore.XLSX_MIME);
+                        i.putExtra(Intent.EXTRA_STREAM, fu);
+                        i.putExtra(Intent.EXTRA_SUBJECT, name);
+                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(i, "엑셀 파일 공유"));
+                    } else {
+                        i = new Intent(Intent.ACTION_VIEW);
+                        i.setDataAndType(fu, AppCore.XLSX_MIME);
+                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(i);
+                    }
+                } catch (Exception e) {
+                    Toast.makeText(this, "엑셀을 열 앱이 없습니다. 파일은 다운로드 폴더에 저장되었습니다.", Toast.LENGTH_LONG).show();
+                }
+            });
+        }).start();
     }
 
     private void openExternal(Uri u) {

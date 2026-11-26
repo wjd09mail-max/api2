@@ -10,8 +10,8 @@ android {
         applicationId "com.stockalert"
         minSdk 26
         targetSdk 35
-        versionCode 15
-        versionName "3.6.1"
+        versionCode 16
+        versionName "3.7.0"
     }
 
     // 고정 서명키: 새 버전을 기존 앱 위에 그대로 업데이트 설치할 수 있게 함

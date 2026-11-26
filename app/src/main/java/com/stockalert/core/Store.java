@@ -166,6 +166,12 @@ public final class Store {
         }
 
         /** 최신순 */
+        public static void clearAlerts() {
+            synchronized (ALERTS) {
+                ALERTS.clear();
+            }
+        }
+
         public static List<Object> alerts(int n) {
             synchronized (ALERTS) {
                 List<Object> all = new ArrayList<Object>(ALERTS);
